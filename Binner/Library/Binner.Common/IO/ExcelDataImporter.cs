@@ -16,7 +16,7 @@ namespace Binner.Common.IO
     public class ExcelDataImporter : IDataImporter
     {
         // SupportedTables ordering matters when it comes to relational data!
-        private readonly string[] SupportedTables = new string[] { "Projects", "PartTypes", "Parts" };
+        private readonly string[] SupportedTables = new string[] { "Projects", "PartTypes", "Parts", "BOM" };
         private readonly IStorageProvider _storageProvider;
         private readonly TemporaryKeyTracker _temporaryKeyTracker = new TemporaryKeyTracker();
 
@@ -71,11 +71,137 @@ namespace Binner.Common.IO
                     {
                         // parse worksheet
                         var header = new Header(worksheet.GetRow(0));
+                        long bomProjectId = 0;
+                        if (table.Equals("BOM"))
+                        {
+                            string projectName = header.Headers[0].ToString();
+                            Project project = await _storageProvider.GetProjectAsync(projectName, userContext);
+                            if (project == null)
+                            {
+                                project = new Project();
+                                project.Name = projectName;
+                                try
+                                {
+                                    project = await _storageProvider.AddProjectAsync(project, userContext);
+                                    bomProjectId = project.ProjectId;
+                                }
+                                catch (Exception ex)
+                                {
+                                    result.Errors.Add($"[Sheet '{table}'] Project with name '{projectName}' could not be added. Error: {ex.Message}");
+                                }
+
+                            }
+                            else
+                            {
+                                bomProjectId = project.ProjectId;
+                            }
+                        }
                         for (var rowNumber = 1; rowNumber <= worksheet.LastRowNum; rowNumber++)
                         {
                             var rowData = worksheet.GetRow(rowNumber);
+                            if (rowData == null)
+                                continue;
                             switch (table.ToLower())
                             {
+                                case "bom":
+                                    {
+                                        // import BOM info
+                                        var isPartNumberValid = TryGet<string?>(rowData, header, "Part Number", out var partNumber);
+                                        var isQuantityValid = TryGet<int>(rowData, header, "Quantity", out var quantity);
+                                        var isReferenceValid = TryGet<string?>(rowData, header, "Reference", out var reference);
+                                        var isNoteValid = TryGet<string?>(rowData, header, "Note", out var note);
+
+                                        if (!isPartNumberValid || !isQuantityValid || !isReferenceValid)
+                                            continue;
+
+                                        ProjectPartAssignment assignment = new ProjectPartAssignment();
+                                        assignment.ProjectId = bomProjectId;
+                                        assignment.Quantity = quantity;
+                                        assignment.Notes = note;
+                                        assignment.SchematicReferenceId = reference;
+
+                                        var part = await _storageProvider.GetPartAsync(partNumber, userContext);
+                                        if (part != null)
+                                        {
+                                            assignment.PartName = part.PartNumber;
+                                        }
+                                        else
+                                        {
+                                            part = new Part();
+                                            part.PartNumber = partNumber;
+                                            part.Quantity = 0;
+                                            part.UserId = userContext?.UserId;
+                                            part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.Other;
+                                            try
+                                            {
+                                                part = await _storageProvider.AddPartAsync(part, userContext);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                // failed to add part
+                                                result.Errors.Add($"[Row {rowNumber}, Sheet '{table}'] Part with PartNumber '{partNumber}' could not be added. Error: {ex.Message}");
+                                            }
+
+                                            assignment.PartName = partNumber;
+                                            /*                                        var metadataResponse = await _partService.GetPartInformationAsync(mappedPart.PartNumber);
+                                                                                    if (metadataResponse.Response != null)
+                                                                                    {
+                                                                                        var digikeyParts = metadataResponse.Response.Parts
+                                                                                            .Where(x =>
+                                                                                                x.Supplier?.Equals("Digikey", StringComparison.InvariantCultureIgnoreCase) == true)
+                                                                                            .OrderByDescending(x => x.DatasheetUrls.Any())
+                                                                                            .ThenBy(x => x.Cost)
+                                                                                            .ToList();
+                                                                                        var mouserParts = metadataResponse.Response.Parts
+                                                                                            .Where(x => x.Supplier?.Equals("Mouser", StringComparison.InvariantCultureIgnoreCase) ==
+                                                                                                        true)
+                                                                                            .OrderByDescending(x => x.DatasheetUrls.Any())
+                                                                                            .ThenBy(x => x.Cost)
+                                                                                            .ToList();
+                                                                                        var arrowParts = metadataResponse.Response.Parts.Where(x => x.Supplier.Equals("Arrow", StringComparison.InvariantCultureIgnoreCase)).OrderByDescending(x => x.DatasheetUrls.Any()).ThenBy(x => x.Cost).ToList();
+                                                                                        var metadata = metadataResponse.Response.Parts.FirstOrDefault();
+                                                                                        if (metadata != null)
+                                                                                        {
+                                                                                            var partType = partTypes.FirstOrDefault(x => x.Name == metadata.PartType) ??
+                                                                                                           defaultPartType;
+                                                                                            mappedPart.PartTypeId = partType.PartTypeId;
+                                                                                            mappedPart.MountingTypeId = metadata.MountingTypeId;
+                                                                                            mappedPart.Description = metadata.Description;
+                                                                                            mappedPart.DatasheetUrl = metadata.DatasheetUrls.FirstOrDefault();
+                                                                                            mappedPart.DigiKeyPartNumber = digikeyParts.FirstOrDefault()?.SupplierPartNumber;
+                                                                                            mappedPart.MouserPartNumber = mouserParts.FirstOrDefault()?.SupplierPartNumber;
+                                                                                            mappedPart.ArrowPartNumber = arrowParts.FirstOrDefault()?.SupplierPartNumber;
+                                                                                            mappedPart.ImageUrl = metadata.ImageUrl;
+                                                                                            mappedPart.Manufacturer = metadata.Manufacturer;
+                                                                                            mappedPart.ManufacturerPartNumber = metadata.ManufacturerPartNumber;
+                                                                                            mappedPart.Keywords = metadata.Keywords ?? new List<string>();
+                                                                                            mappedPart.LowStockThreshold = 10;
+                                                                                            mappedPart.ProductUrl = metadata.ProductUrl;
+                                                                                            mappedPart.PackageType = metadata.PackageType;
+                                                                                            mappedPart.Cost = metadata.Cost;
+                                                                                        }
+                                                                                        else
+                                                                                        {
+                                                                                            // map some default values as we don't know what this is
+                                                                                            mappedPart.PartTypeId = defaultPartType.PartTypeId;
+                                                                                            mappedPart.MountingTypeId = (int)MountingType.None;
+                                                                                        }
+                                                                                    }
+                                            */
+
+                                        }
+
+                                        try
+                                        {
+                                            await _storageProvider.AddProjectPartAssignmentAsync(assignment, userContext);
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            result.Errors.Add($"[Row {rowNumber}, Sheet '{table}'] BOM entry '{partNumber}' could not be added. Error: {ex.Message}");
+                                        }
+
+                                    }
+                                    break;
                                 case "projects":
                                     {
                                         // import project info
