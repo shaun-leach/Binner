@@ -124,6 +124,7 @@ namespace Binner.Common.IO
                                         if (part != null)
                                         {
                                             assignment.PartName = part.PartNumber;
+                                            assignment.PartId   = part.PartId;
                                         }
                                         else
                                         {
@@ -143,6 +144,7 @@ namespace Binner.Common.IO
                                             }
 
                                             assignment.PartName = partNumber;
+                                            assignment.PartId   = part.PartId;
                                             /*                                        var metadataResponse = await _partService.GetPartInformationAsync(mappedPart.PartNumber);
                                                                                     if (metadataResponse.Response != null)
                                                                                     {
