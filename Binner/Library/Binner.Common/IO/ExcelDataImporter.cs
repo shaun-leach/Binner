@@ -1,5 +1,6 @@
 ﻿using Binner.Global.Common;
 using Binner.Model;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using NPOI.SS.UserModel;
 using System;
 using System.Collections.Generic;
@@ -7,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using TypeSupport.Extensions;
 
 namespace Binner.Common.IO
 {
@@ -58,6 +60,33 @@ namespace Binner.Common.IO
             var result = new ImportResult();
             foreach (var table in SupportedTables)
                 result.RowsImportedByTable.Add(table, 0);
+
+            long bomProjectId = 0;
+            if (filename.Contains("_bom"))
+            {
+                string projectName = filename.Remove(filename.LastIndexOf("_bom"));
+                Project project = await _storageProvider.GetProjectAsync(projectName, userContext);
+                if (project == null)
+                {
+                    project = new Project();
+                    project.Name = projectName;
+                    try
+                    {
+                        project = await _storageProvider.AddProjectAsync(project, userContext);
+                        bomProjectId = project.ProjectId;
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Errors.Add($"[Sheet '{projectName}'] Project with name '{projectName}' could not be added. Error: {ex.Message}");
+                    }
+
+                }
+                else
+                {
+                    bomProjectId = project.ProjectId;
+                }
+
+            }
             // get the global part types, and the user's custom part types
             var partTypes = (await _storageProvider.GetPartTypesAsync(userContext)).ToList();
             try
@@ -71,31 +100,6 @@ namespace Binner.Common.IO
                     {
                         // parse worksheet
                         var header = new Header(worksheet.GetRow(0));
-                        long bomProjectId = 0;
-                        if (table.Equals("BOM"))
-                        {
-                            string projectName = header.Headers[0].ToString();
-                            Project project = await _storageProvider.GetProjectAsync(projectName, userContext);
-                            if (project == null)
-                            {
-                                project = new Project();
-                                project.Name = projectName;
-                                try
-                                {
-                                    project = await _storageProvider.AddProjectAsync(project, userContext);
-                                    bomProjectId = project.ProjectId;
-                                }
-                                catch (Exception ex)
-                                {
-                                    result.Errors.Add($"[Sheet '{table}'] Project with name '{projectName}' could not be added. Error: {ex.Message}");
-                                }
-
-                            }
-                            else
-                            {
-                                bomProjectId = project.ProjectId;
-                            }
-                        }
                         for (var rowNumber = 1; rowNumber <= worksheet.LastRowNum; rowNumber++)
                         {
                             var rowData = worksheet.GetRow(rowNumber);
@@ -106,10 +110,10 @@ namespace Binner.Common.IO
                                 case "bom":
                                     {
                                         // import BOM info
-                                        var isPartNumberValid = TryGet<string?>(rowData, header, "Part Number", out var partNumber);
-                                        var isQuantityValid = TryGet<int>(rowData, header, "Quantity", out var quantity);
-                                        var isReferenceValid = TryGet<string?>(rowData, header, "Reference", out var reference);
-                                        var isNoteValid = TryGet<string?>(rowData, header, "Note", out var note);
+                                        var isPartNumberValid = TryGet<string?>(rowData, header, "MPN", out var partNumber);
+                                        var isQuantityValid = TryGet<int>(rowData, header, "Quantity per PCB", out var quantity);
+                                        var isReferenceValid = TryGet<string?>(rowData, header, "References", out var reference);
+                                        var isNoteValid = TryGet<string?>(rowData, header, "Value", out var note);
 
                                         if (!isPartNumberValid || !isQuantityValid || !isReferenceValid)
                                             continue;
