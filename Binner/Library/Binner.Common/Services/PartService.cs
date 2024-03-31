@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Binner.Common.Integrations;
+using Binner.Common.Integrations.Models;
 using Binner.Data;
 using Binner.Global.Common;
 using Binner.LicensedProvider;
@@ -10,6 +11,7 @@ using Binner.Model.Integrations.Arrow;
 using Binner.Model.Integrations.DigiKey;
 using Binner.Model.Integrations.Mouser;
 using Binner.Model.Integrations.Nexar;
+using Binner.Model.Requests;
 using Binner.Model.Responses;
 using Binner.Model.Swarm;
 using Binner.StorageProvider.EntityFrameworkCore;
@@ -20,6 +22,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Part = Binner.Model.Part;
@@ -86,15 +89,18 @@ namespace Binner.Common.Services
             return await _storageProvider.GetLowStockAsync(request, _requestContext.GetUserContext());
         }
 
-        public async Task<Part?> GetPartAsync(string partNumber)
+        public async Task<Part?> GetPartAsync(GetPartRequest request)
         {
-            return await _storageProvider.GetPartAsync(partNumber, _requestContext.GetUserContext());
+            if (request.PartId > 0)
+                return await _storageProvider.GetPartAsync(request.PartId, _requestContext.GetUserContext());
+            else
+                return await _storageProvider.GetPartAsync(request.PartNumber ?? string.Empty, _requestContext.GetUserContext());
         }
 
-        public async Task<(Part? Part, ICollection<StoredFile> StoredFiles)> GetPartWithStoredFilesAsync(string partNumber)
+        public async Task<(Part? Part, ICollection<StoredFile> StoredFiles)> GetPartWithStoredFilesAsync(GetPartRequest request)
         {
             var userContext = _requestContext.GetUserContext();
-            var partEntity = await _storageProvider.GetPartAsync(partNumber, userContext);
+            var partEntity = await GetPartAsync(request);
             var storedFiles = new List<StoredFile>();
             if (partEntity != null)
             {
@@ -193,69 +199,117 @@ namespace Binner.Common.Services
             var user = _requestContext.GetUserContext();
             var digikeyApi = await _integrationApiFactory.CreateAsync<Integrations.DigikeyApi>(user?.UserId ?? 0);
             if (!digikeyApi.IsEnabled)
-                return ServiceResult<CategoriesResponse>.Create("Api is not enabled.", nameof(Integrations.DigikeyApi));
+                return ServiceResult<CategoriesResponse?>.Create("Api is not enabled.", nameof(Integrations.DigikeyApi));
 
             var apiResponse = await digikeyApi.GetCategoriesAsync();
             if (apiResponse.RequiresAuthentication)
-                return ServiceResult<CategoriesResponse>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
+                return ServiceResult<CategoriesResponse?>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
             else if (apiResponse.Errors?.Any() == true)
-                return ServiceResult<CategoriesResponse>.Create(apiResponse.Errors, apiResponse.ApiName);
+                return ServiceResult<CategoriesResponse?>.Create(apiResponse.Errors, apiResponse.ApiName);
 
             if (apiResponse.Response != null)
             {
                 var digikeyResponse = (CategoriesResponse)apiResponse.Response;
-                return ServiceResult<CategoriesResponse>.Create(digikeyResponse);
+                return ServiceResult<CategoriesResponse?>.Create(digikeyResponse);
             }
 
-            return ServiceResult<CategoriesResponse>.Create("Invalid response received", apiResponse.ApiName);
+            return ServiceResult<CategoriesResponse?>.Create("Invalid response received", apiResponse.ApiName);
         }
 
         /// <summary>
         /// Get an external order
         /// </summary>
-        /// <param name="orderId"></param>
-        /// <param name="supplier"></param>
+        /// <param name="request"></param>
         /// <returns></returns>
-        public async Task<IServiceResult<ExternalOrderResponse?>> GetExternalOrderAsync(string orderId, string supplier, string? username, string? password)
+        public async Task<IServiceResult<ExternalOrderResponse?>> GetExternalOrderAsync(OrderImportRequest request)
         {
-            switch (supplier.ToLower())
+            if (string.IsNullOrEmpty(request.OrderId)) throw new InvalidOperationException($"OrderId must be provided");
+
+            switch (request.Supplier?.ToLower())
             {
                 case "digikey":
-                    return await GetExternalDigiKeyOrderAsync(orderId);
+                    return await GetExternalDigiKeyOrderAsync(request);
                 case "mouser":
-                    return await GetExternalMouserOrderAsync(orderId);
+                    return await GetExternalMouserOrderAsync(request);
                 case "arrow":
-                    return await GetExternalArrowOrderAsync(orderId, username, password);
+                    return await GetExternalArrowOrderAsync(request);
                 default:
-                    throw new InvalidOperationException($"Unknown supplier {supplier}");
+                    throw new InvalidOperationException($"Unknown supplier {request.Supplier}");
             }
         }
 
-        private async Task<IServiceResult<ExternalOrderResponse?>> GetExternalDigiKeyOrderAsync(string orderId)
+        private async Task<IServiceResult<ExternalOrderResponse?>> GetExternalDigiKeyOrderAsync(OrderImportRequest request)
         {
             var user = _requestContext.GetUserContext();
             var digikeyApi = await _integrationApiFactory.CreateAsync<Integrations.DigikeyApi>(user?.UserId ?? 0);
             if (!digikeyApi.IsEnabled)
-                return ServiceResult<ExternalOrderResponse>.Create("Api is not enabled.", nameof(Integrations.DigikeyApi));
+                return ServiceResult<ExternalOrderResponse?>.Create("Api is not enabled.", nameof(Integrations.DigikeyApi));
 
-            var apiResponse = await digikeyApi.GetOrderAsync(orderId);
+            var apiResponse = await digikeyApi.GetOrderAsync(request.OrderId);
             if (apiResponse.RequiresAuthentication)
-                return ServiceResult<ExternalOrderResponse>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
+                return ServiceResult<ExternalOrderResponse?>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
             else if (apiResponse.Errors?.Any() == true)
-                return ServiceResult<ExternalOrderResponse>.Create(apiResponse.Errors, apiResponse.ApiName);
+                return ServiceResult<ExternalOrderResponse?>.Create(apiResponse.Errors, apiResponse.ApiName);
+
+            var messages = new List<Model.Responses.Message>();
             var digikeyResponse = (OrderSearchResponse?)apiResponse.Response ?? new OrderSearchResponse();
 
             var lineItems = digikeyResponse.LineItems;
             var commonParts = new List<CommonPart>();
             var partTypes = await _storageProvider.GetPartTypesAsync(_requestContext.GetUserContext());
+
+            var digikeyApiMaxOrderLineItems = 50;
+            var isLargeOrder = lineItems.Count > digikeyApiMaxOrderLineItems;
+
+            if (isLargeOrder)
+            {
+                // only supply the information provided by the order once we hit this limit
+                messages.Add(Model.Responses.Message.FromInfo($"This order is too large to get metadata on every product. Only the first {digikeyApiMaxOrderLineItems} products will have full metadata information available (DigiKey Api Limitation)."));
+            }
+
+            var lineItemCount = 0;
+            var errorsEncountered = 0;
             // look up every part by digikey part number
             foreach (var lineItem in lineItems)
             {
+                lineItemCount++;
+
                 // get details on this digikey part
                 if (string.IsNullOrEmpty(lineItem.DigiKeyPartNumber))
                     continue;
-                var partResponse = await digikeyApi.GetProductDetailsAsync(lineItem.DigiKeyPartNumber);
-                if (!partResponse.RequiresAuthentication && partResponse?.Errors.Any() == false)
+
+                if (!request.RequestProductInfo || lineItemCount > digikeyApiMaxOrderLineItems || errorsEncountered > 0)
+                {
+                    commonParts.Add(DigiKeyLineItemToCommonPart(lineItem));
+                    continue;
+                }
+
+                IApiResponse? partResponse = null;
+                var productResponseSuccess = false;
+                try
+                {
+                    partResponse = await digikeyApi.GetProductDetailsAsync(lineItem.DigiKeyPartNumber);
+                    if (!partResponse.RequiresAuthentication && partResponse.Errors.Any() == false)
+                        productResponseSuccess = true;
+                    if (partResponse.RequiresAuthentication)
+                    {
+                        messages.Add(Model.Responses.Message.FromError($"Failed to get product details on part '{lineItem.DigiKeyPartNumber}'. Api: Requires authentication."));
+                        errorsEncountered++;
+                    }
+                    if (partResponse.Errors.Any() == true)
+                    {
+                        messages.Add(Model.Responses.Message.FromError($"Failed to get product details on part '{lineItem.DigiKeyPartNumber}'. Api Errors: {string.Join(",", partResponse.Errors)}"));
+                        errorsEncountered++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // likely we have been throttled
+                    messages.Add(Model.Responses.Message.FromError($"Failed to get product details on part '{lineItem.DigiKeyPartNumber}'. Exception: {ex.GetBaseException().Message}"));
+                    errorsEncountered++;
+                }
+
+                if (productResponseSuccess && partResponse?.Response != null)
                 {
                     var part = (Product?)partResponse.Response ?? new Product();
                     // convert the part to a common part
@@ -287,26 +341,14 @@ namespace Binner.Common.Services
                             ?.Where(x => x.Parameter.Equals("Package / Case", ComparisonType))
                             .Select(x => x.Value)
                             .FirstOrDefault();
-                    commonParts.Add(new CommonPart
-                    {
-                        SupplierPartNumber = part.DigiKeyPartNumber,
-                        Supplier = "DigiKey",
-                        ManufacturerPartNumber = part.ManufacturerPartNumber,
-                        Manufacturer = part.Manufacturer?.Value ?? string.Empty,
-                        Description = part.ProductDescription + "\r\n" + part.DetailedDescription,
-                        ImageUrl = part.PrimaryPhoto,
-                        DatasheetUrls = new List<string> { part.PrimaryDatasheet ?? string.Empty },
-                        ProductUrl = part.ProductUrl,
-                        Status = part.ProductStatus,
-                        Currency = currency,
-                        AdditionalPartNumbers = additionalPartNumbers,
-                        BasePartNumber = basePart,
-                        MountingTypeId = (int)mountingTypeId,
-                        PackageType = packageType,
-                        Cost = lineItem.UnitPrice,
-                        QuantityAvailable = lineItem.Quantity,
-                        Reference = lineItem.CustomerReference,
-                    });
+
+                    commonParts.Add(DigiKeyPartToCommonPart(part, currency, additionalPartNumbers, basePart, (int)mountingTypeId, packageType, lineItem));
+                }
+                else
+                {
+                    messages.Add(Model.Responses.Message.FromInfo($"No additional product details available on part '{lineItem.DigiKeyPartNumber}'."));
+                    // use the more minimal information provided by the order import call
+                    commonParts.Add(DigiKeyLineItemToCommonPart(lineItem));
                 }
             }
             foreach (var part in commonParts)
@@ -314,98 +356,144 @@ namespace Binner.Common.Services
                 part.PartType = DeterminePartType(part, partTypes);
                 part.Keywords = DetermineKeywordsFromPart(part, partTypes);
             }
-            return ServiceResult<ExternalOrderResponse>.Create(new ExternalOrderResponse
+            return ServiceResult<ExternalOrderResponse?>.Create(new ExternalOrderResponse
             {
                 OrderDate = digikeyResponse.ShippingDetails.Any() ? DateTime.Parse(digikeyResponse.ShippingDetails.First().DateTransaction ?? DateTime.MinValue.ToString()) : DateTime.MinValue,
                 Currency = digikeyResponse.Currency,
                 CustomerId = digikeyResponse.CustomerId.ToString(),
                 Amount = lineItems.Sum(x => x.TotalPrice),
                 TrackingNumber = digikeyResponse.ShippingDetails.Any() ? digikeyResponse.ShippingDetails.First().TrackingUrl : "",
+                Messages = messages,
                 Parts = commonParts
             });
         }
 
-        private async Task<IServiceResult<ExternalOrderResponse?>> GetExternalMouserOrderAsync(string orderId)
+        private CommonPart DigiKeyPartToCommonPart(Product part, string currency, ICollection<string> additionalPartNumbers, string? basePart, int mountingTypeId, string? packageType, LineItem lineItem) => new CommonPart
+        {
+            SupplierPartNumber = part.DigiKeyPartNumber,
+            Supplier = "DigiKey",
+            ManufacturerPartNumber = part.ManufacturerPartNumber,
+            Manufacturer = part.Manufacturer?.Value ?? string.Empty,
+            Description = part.ProductDescription + "\r\n" + part.DetailedDescription,
+            ImageUrl = part.PrimaryPhoto,
+            DatasheetUrls = new List<string> { part.PrimaryDatasheet ?? string.Empty },
+            ProductUrl = part.ProductUrl,
+            Status = part.ProductStatus,
+            Currency = currency,
+            AdditionalPartNumbers = additionalPartNumbers,
+            BasePartNumber = basePart,
+            MountingTypeId = mountingTypeId,
+            PackageType = packageType,
+            Cost = lineItem.UnitPrice,
+            QuantityAvailable = lineItem.Quantity,
+            Reference = lineItem.CustomerReference,
+        };
+
+        private CommonPart DigiKeyLineItemToCommonPart(LineItem lineItem) => new CommonPart
+        {
+            SupplierPartNumber = lineItem.DigiKeyPartNumber,
+            Supplier = "DigiKey",
+            ManufacturerPartNumber = string.Empty,
+            Manufacturer = string.Empty,
+            Description = lineItem.ProductDescription,
+            Cost = lineItem.UnitPrice,
+            QuantityAvailable = lineItem.Quantity,
+            Reference = lineItem.CustomerReference,
+        };
+
+        private async Task<IServiceResult<ExternalOrderResponse?>> GetExternalMouserOrderAsync(OrderImportRequest request)
         {
             var user = _requestContext.GetUserContext();
             var mouserApi = await _integrationApiFactory.CreateAsync<Integrations.MouserApi>(user?.UserId ?? 0);
             if (!((MouserConfiguration)mouserApi.Configuration).IsOrdersConfigured)
-                return ServiceResult<ExternalOrderResponse>.Create("Mouser Ordering Api is not enabled. Please configure your Mouser API settings and add an Ordering Api key.", nameof(Integrations.MouserApi));
+                return ServiceResult<ExternalOrderResponse?>.Create("Mouser Ordering Api is not enabled. Please configure your Mouser API settings and add an Ordering Api key.", nameof(Integrations.MouserApi));
 
-            var apiResponse = await mouserApi.GetOrderAsync(orderId);
+            var messages = new List<Model.Responses.Message>();
+            var apiResponse = await mouserApi.GetOrderAsync(request.OrderId);
             if (apiResponse.RequiresAuthentication)
-                return ServiceResult<ExternalOrderResponse>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
+                return ServiceResult<ExternalOrderResponse?>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
             else if (apiResponse.Errors?.Any() == true)
-                return ServiceResult<ExternalOrderResponse>.Create(apiResponse.Errors, apiResponse.ApiName);
-            var mouserOrderResponse = (Order?)apiResponse.Response;
+                return ServiceResult<ExternalOrderResponse?>.Create(apiResponse.Errors, apiResponse.ApiName);
+            var mouserOrderResponse = (OrderHistory?)apiResponse.Response;
             if (mouserOrderResponse != null)
             {
                 var lineItems = mouserOrderResponse.OrderLines;
                 var commonParts = new List<CommonPart>();
                 var partTypes = await _storageProvider.GetPartTypesAsync(_requestContext.GetUserContext());
+                var mouserApiMaxOrderLineItems = 25;
+                var isLargeOrder = lineItems.Count > mouserApiMaxOrderLineItems;
+
+                if (isLargeOrder)
+                {
+                    // only supply the information provided by the order once we hit this limit
+                    messages.Add(Model.Responses.Message.FromInfo($"This order is too large to get metadata on every product. Only the first {mouserApiMaxOrderLineItems} products will have full metadata information available (Mouser Api Limitation)."));
+                }
+
                 // look up every part by mouser part number
+                var lineItemCount = 0;
+                var errorsEncountered = 0;
                 foreach (var lineItem in lineItems)
                 {
+                    lineItemCount++;
+
                     // get details on this mouser part
-                    if (string.IsNullOrEmpty(lineItem.MouserPartNumber))
+                    if (string.IsNullOrEmpty(lineItem.ProductInfo.MouserPartNumber))
                         continue;
+
+                    if (!request.RequestProductInfo || lineItemCount > mouserApiMaxOrderLineItems || errorsEncountered > 0)
+                    {
+                        commonParts.Add(MouserOrderLineToCommonPart(lineItem, mouserOrderResponse.CurrencyCode ?? string.Empty));
+                        continue;
+                    }
+
+                    // if search api is configured, request additional information for each part
                     if (((MouserConfiguration)mouserApi.Configuration).IsConfigured)
                     {
                         // request additional information for the part as orders doesn't return much
-                        var partResponse = await mouserApi.GetProductDetailsAsync(lineItem.MouserPartNumber);
-                        if (!partResponse.RequiresAuthentication && partResponse?.Errors.Any() == false)
+                        IApiResponse? partResponse = null;
+                        var productResponseSuccess = false;
+                        try
                         {
-                            if (partResponse.Response != null)
+
+                            partResponse = await mouserApi.GetProductDetailsAsync(lineItem.ProductInfo.MouserPartNumber);
+                            if (!partResponse.RequiresAuthentication && partResponse.Errors.Any() == false)
+                                productResponseSuccess = true;
+                            if (partResponse.RequiresAuthentication)
                             {
-                                var searchResults = (ICollection<MouserPart>)partResponse.Response;
-                                // convert the part to a common part
-                                var part = searchResults.First();
-                                commonParts.Add(new CommonPart
-                                {
-                                    SupplierPartNumber = part.MouserPartNumber,
-                                    Supplier = "Mouser",
-                                    ManufacturerPartNumber = part.ManufacturerPartNumber,
-                                    Manufacturer = part.Manufacturer,
-                                    Description = part.Description,
-                                    ImageUrl = part.ImagePath,
-                                    DatasheetUrls = new List<string> { part.DataSheetUrl ?? string.Empty },
-                                    ProductUrl = part.ProductDetailUrl,
-                                    Status = part.LifecycleStatus,
-                                    Currency = mouserOrderResponse.CurrencyCode,
-                                    AdditionalPartNumbers = new List<string>(),
-                                    BasePartNumber = part.ManufacturerPartNumber,
-                                    MountingTypeId = 0,
-                                    PackageType = "",
-                                    Cost = lineItem.UnitPrice,
-                                    QuantityAvailable = lineItem.Quantity,
-                                    Reference = lineItem.CartItemCustPartNumber,
-                                });
+                                messages.Add(Model.Responses.Message.FromError($"Failed to get product details on part '{lineItem.ProductInfo.MouserPartNumber}'. Api: Requires authentication."));
+                                errorsEncountered++;
                             }
+                            if (partResponse.Errors.Any() == true)
+                            {
+                                messages.Add(Model.Responses.Message.FromError($"Failed to get product details on part '{lineItem.ProductInfo.MouserPartNumber}'. Api Errors: {string.Join(",", partResponse.Errors)}"));
+                                errorsEncountered++;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            // likely we have been throttled
+                            messages.Add(Model.Responses.Message.FromError($"Failed to get product details on part '{lineItem.ProductInfo.MouserPartNumber}'. Exception: {ex.GetBaseException().Message}"));
+                            errorsEncountered++;
+                        }
+                        if (productResponseSuccess && partResponse?.Response != null)
+                        {
+                            var searchResults = (ICollection<MouserPart>)partResponse.Response;
+                            // convert the part to a common part
+                            var part = searchResults.First();
+                            commonParts.Add(MouserPartToCommonPart(part, lineItem, mouserOrderResponse.CurrencyCode ?? string.Empty));
+                        }
+                        else
+                        {
+                            messages.Add(Model.Responses.Message.FromInfo($"No additional product details available on part '{lineItem.ProductInfo.MouserPartNumber}'."));
+                            // use the more minimal information provided by the order import call
+                            commonParts.Add(MouserOrderLineToCommonPart(lineItem, mouserOrderResponse.CurrencyCode ?? string.Empty));
                         }
                     }
                     else
                     {
+                        messages.Add(Model.Responses.Message.FromInfo($"Search API not configured, no additional product details available on part '{lineItem.ProductInfo.MouserPartNumber}'."));
                         // use the more minimal information provided by the order import call
-                        commonParts.Add(new CommonPart
-                        {
-                            SupplierPartNumber = lineItem.MouserPartNumber,
-                            Supplier = "Mouser",
-                            ManufacturerPartNumber = lineItem.MfrPartNumber,
-                            Manufacturer = lineItem.Manufacturer,
-                            Description = lineItem.Description,
-                            //ImageUrl = part.ImagePath,
-                            //DatasheetUrls = new List<string> { part.DataSheetUrl ?? string.Empty },
-                            //ProductUrl = lineItem.ProductDetailUrl,
-                            //Status = part.LifecycleStatus,
-                            Currency = mouserOrderResponse.CurrencyCode,
-                            AdditionalPartNumbers = new List<string>(),
-                            BasePartNumber = lineItem.MfrPartNumber,
-                            MountingTypeId = 0,
-                            PackageType = "",
-                            Cost = lineItem.UnitPrice,
-                            QuantityAvailable = lineItem.Quantity,
-                            Reference = lineItem.CartItemCustPartNumber,
-                        });
+                        commonParts.Add(MouserOrderLineToCommonPart(lineItem, mouserOrderResponse.CurrencyCode ?? string.Empty));
                     }
                 }
 
@@ -415,13 +503,14 @@ namespace Binner.Common.Services
                     part.Keywords = DetermineKeywordsFromPart(part, partTypes);
                 }
 
-                return ServiceResult<ExternalOrderResponse>.Create(new ExternalOrderResponse
+                return ServiceResult<ExternalOrderResponse?>.Create(new ExternalOrderResponse
                 {
-                    OrderDate = DateTime.MinValue,
+                    OrderDate = mouserOrderResponse.OrderDate,
                     Currency = mouserOrderResponse.CurrencyCode,
-                    CustomerId = "",
-                    Amount = mouserOrderResponse.OrderTotal,
-                    TrackingNumber = "",
+                    CustomerId = mouserOrderResponse.BuyerName,
+                    Amount = double.Parse(mouserOrderResponse.SummaryDetail?.OrderTotal.Replace("$", "") ?? "0"),
+                    TrackingNumber = mouserOrderResponse.DeliveryDetail?.ShippingMethodName,
+                    Messages = messages,
                     Parts = commonParts
                 });
             }
@@ -429,20 +518,68 @@ namespace Binner.Common.Services
             return ServiceResult<ExternalOrderResponse>.Create("Error", nameof(MouserApi));
         }
 
-        private async Task<IServiceResult<ExternalOrderResponse?>> GetExternalArrowOrderAsync(string orderId, string? username, string? password)
+        private CommonPart MouserPartToCommonPart(MouserPart part, OrderHistoryLine orderLine, string currencyCode)
+        {
+            return new CommonPart
+            {
+                SupplierPartNumber = part.MouserPartNumber,
+                Supplier = "Mouser",
+                ManufacturerPartNumber = part.ManufacturerPartNumber,
+                Manufacturer = part.Manufacturer,
+                Description = part.Description,
+                ImageUrl = part.ImagePath,
+                DatasheetUrls = new List<string> { part.DataSheetUrl ?? string.Empty },
+                ProductUrl = part.ProductDetailUrl,
+                Status = part.LifecycleStatus,
+                Currency = currencyCode,
+                AdditionalPartNumbers = new List<string>(),
+                BasePartNumber = part.ManufacturerPartNumber,
+                MountingTypeId = 0,
+                PackageType = "",
+                Cost = orderLine.UnitPrice,
+                QuantityAvailable = orderLine.Quantity,
+                Reference = orderLine.ProductInfo.CustomerPartNumber,
+            };
+        }
+
+        private CommonPart MouserOrderLineToCommonPart(OrderHistoryLine? orderLine, string currencyCode)
+        {
+            return new CommonPart
+            {
+                SupplierPartNumber = orderLine.ProductInfo.MouserPartNumber,
+                Supplier = "Mouser",
+                ManufacturerPartNumber = orderLine.ProductInfo.ManufacturerPartNumber,
+                Manufacturer = orderLine.ProductInfo.ManufacturerName,
+                Description = orderLine.ProductInfo.PartDescription,
+                //ImageUrl = part.ImagePath,
+                //DatasheetUrls = new List<string> { part.DataSheetUrl ?? string.Empty },
+                //ProductUrl = lineItem.ProductDetailUrl,
+                //Status = part.LifecycleStatus,
+                Currency = currencyCode,
+                AdditionalPartNumbers = new List<string>(),
+                BasePartNumber = orderLine.ProductInfo.ManufacturerPartNumber,
+                MountingTypeId = 0,
+                PackageType = "",
+                Cost = orderLine.UnitPrice,
+                QuantityAvailable = orderLine.Quantity,
+                Reference = orderLine.ProductInfo.CustomerPartNumber,
+            };
+        }
+
+        private async Task<IServiceResult<ExternalOrderResponse?>> GetExternalArrowOrderAsync(OrderImportRequest request)
         {
             var user = _requestContext.GetUserContext();
             var arrowApi = await _integrationApiFactory.CreateAsync<Integrations.ArrowApi>(user?.UserId ?? 0);
             if (!((ArrowConfiguration)arrowApi.Configuration).IsConfigured)
-                return ServiceResult<ExternalOrderResponse>.Create("Arrow Ordering Api is not enabled. Please configure your Arrow API settings and ensure a Username and Api key is set.", nameof(Integrations.ArrowApi));
-            if (string.IsNullOrEmpty(password))
-                return ServiceResult<ExternalOrderResponse>.Create("Arrow orders require your account password! (it's a requirement of their API)", nameof(Integrations.ArrowApi));
+                return ServiceResult<ExternalOrderResponse?>.Create("Arrow Ordering Api is not enabled. Please configure your Arrow API settings and ensure a Username and Api key is set.", nameof(Integrations.ArrowApi));
+            if (string.IsNullOrEmpty(request.Password))
+                return ServiceResult<ExternalOrderResponse?>.Create("Arrow orders require your account password! (it's a requirement of their API)", nameof(Integrations.ArrowApi));
 
-            var apiResponse = await arrowApi.GetOrderAsync(orderId, new Dictionary<string, string> { { "username", username ?? string.Empty }, { "password", password ?? string.Empty } });
+            var apiResponse = await arrowApi.GetOrderAsync(request.OrderId, new Dictionary<string, string> { { "username", request.Username ?? string.Empty }, { "password", request.Password ?? string.Empty } });
             if (apiResponse.RequiresAuthentication)
-                return ServiceResult<ExternalOrderResponse>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
+                return ServiceResult<ExternalOrderResponse?>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
             else if (apiResponse.Errors?.Any() == true)
-                return ServiceResult<ExternalOrderResponse>.Create(apiResponse.Errors, apiResponse.ApiName);
+                return ServiceResult<ExternalOrderResponse?>.Create(apiResponse.Errors, apiResponse.ApiName);
             var arrowOrderResponse = (OrderResponse?)apiResponse.Response;
             if (arrowOrderResponse != null)
             {
@@ -484,7 +621,7 @@ namespace Binner.Common.Services
                     part.Keywords = DetermineKeywordsFromPart(part, partTypes);
                 }
 
-                return ServiceResult<ExternalOrderResponse>.Create(new ExternalOrderResponse
+                return ServiceResult<ExternalOrderResponse?>.Create(new ExternalOrderResponse
                 {
                     OrderDate = DateTime.MinValue,
                     Currency = arrowOrderResponse.CurrencyCode,
@@ -495,7 +632,7 @@ namespace Binner.Common.Services
                 });
             }
 
-            return ServiceResult<ExternalOrderResponse>.Create("Error", nameof(ArrowApi));
+            return ServiceResult<ExternalOrderResponse?>.Create("Error", nameof(ArrowApi));
         }
 
         public async Task<IServiceResult<Product?>> GetBarcodeInfoProductAsync(string barcode, ScannedBarcodeType barcodeType)
@@ -669,9 +806,9 @@ namespace Binner.Common.Services
                     if (barcodeInfo.Response?.Parts.Any() == true)
                     {
                         var firstPartMatch = barcodeInfo.Response.Parts.First();
-                        if(!string.IsNullOrEmpty(firstPartMatch.ManufacturerPartNumber))
+                        if (!string.IsNullOrEmpty(firstPartMatch.ManufacturerPartNumber))
                             partNumber = firstPartMatch.ManufacturerPartNumber;
-                        else if(!string.IsNullOrEmpty(firstPartMatch.BasePartNumber))
+                        else if (!string.IsNullOrEmpty(firstPartMatch.BasePartNumber))
                             partNumber = firstPartMatch.BasePartNumber;
 
                     }
@@ -685,6 +822,7 @@ namespace Binner.Common.Services
                 return ServiceResult<PartResults>.Create(response);
             }
 
+            var apiResponses = new Dictionary<string, Model.Integrations.ApiResponseState>();
             var datasheets = new List<string>();
             var swarmResponse = new SwarmApi.Response.SearchPartResponse();
             var digikeyResponse = new KeywordSearchResponse();
@@ -695,7 +833,18 @@ namespace Binner.Common.Services
 
             if (digikeyApi.Configuration.IsConfigured)
             {
-                var apiResponse = await digikeyApi.SearchAsync(searchKeywords, partType, mountingType);
+                IApiResponse? apiResponse = null;
+                try
+                {
+                    apiResponse = await digikeyApi.SearchAsync(searchKeywords, partType, mountingType);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"[{nameof(DigikeyApi)}]: {ex.GetBaseException().Message}");
+                    apiResponse = new ApiResponse(new List<string> { ex.GetBaseException().Message }, nameof(DigikeyApi));
+                }
+                apiResponses.Add(nameof(DigikeyApi), new Model.Integrations.ApiResponseState(false, apiResponse));
+
                 if (apiResponse.RequiresAuthentication)
                     return ServiceResult<PartResults>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
                 if (apiResponse.Warnings?.Any() == true)
@@ -705,7 +854,7 @@ namespace Binner.Common.Services
                 if (apiResponse.Errors?.Any() == true)
                 {
                     _logger.LogError($"[{apiResponse.ApiName}]: {string.Join(". ", apiResponse.Errors)}");
-                    return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
+                    // return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
                 }
 
                 digikeyResponse = (KeywordSearchResponse?)apiResponse.Response;
@@ -718,10 +867,19 @@ namespace Binner.Common.Services
                         if (isNumber)
                         {
                             var barcode = searchKeywords;
-                            var barcodeResult = await GetBarcodeInfoProductAsync(barcode, ScannedBarcodeType.Product);
-                            digikeyResponse = new KeywordSearchResponse();
-                            if (barcodeResult.Response != null)
-                                digikeyResponse.Products.Add(barcodeResult.Response);
+                            IServiceResult<Product?> barcodeResult = null;
+                            try
+                            {
+                                barcodeResult = await GetBarcodeInfoProductAsync(barcode, ScannedBarcodeType.Product);
+                                digikeyResponse = new KeywordSearchResponse();
+                                if (barcodeResult.Response != null)
+                                    digikeyResponse.Products.Add(barcodeResult.Response);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, $"[{nameof(DigikeyApi)}]: {ex.GetBaseException().Message}");
+                                apiResponse.Errors.Add($"Error fetching barcode info on '{WebUtility.HtmlEncode(barcode)}': {ex.GetBaseException().Message}");
+                            }
                         }
                     }
 
@@ -740,12 +898,21 @@ namespace Binner.Common.Services
                                 if (!string.IsNullOrEmpty(supplierPartNumber))
                                 {
                                     // try looking it up via the digikey part number
-                                    var partResponse = await digikeyApi.GetProductDetailsAsync(supplierPartNumber);
-                                    if (!partResponse.RequiresAuthentication && partResponse?.Errors.Any() == false)
+                                    IApiResponse? partResponse = null;
+                                    try
                                     {
-                                        var part = (Product?)partResponse.Response;
-                                        if (part != null)
-                                            digikeyResponse.Products.Add(part);
+                                        partResponse = await digikeyApi.GetProductDetailsAsync(supplierPartNumber);
+                                        if (!partResponse.RequiresAuthentication && partResponse?.Errors.Any() == false)
+                                        {
+                                            var part = (Product?)partResponse.Response;
+                                            if (part != null)
+                                                digikeyResponse.Products.Add(part);
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, $"[{nameof(DigikeyApi)}]: {ex.GetBaseException().Message}");
+                                        apiResponse.Errors.Add($"Error fetching product details on '{WebUtility.HtmlEncode(supplierPartNumber)}': {ex.GetBaseException().Message}");
                                     }
                                 }
                             }
@@ -757,22 +924,48 @@ namespace Binner.Common.Services
                     {
                         var supplierPartNumber = searchKeywords;
                         // try looking it up via the digikey part number
-                        var partResponse = await digikeyApi.GetProductDetailsAsync(supplierPartNumber);
-                        if (!partResponse.RequiresAuthentication && partResponse?.Errors.Any() == false)
+                        try
                         {
-                            var part = (Product?)partResponse.Response;
-                            if (part != null)
-                                digikeyResponse.Products.Add(part);
+                            var partResponse = await digikeyApi.GetProductDetailsAsync(supplierPartNumber);
+                            if (!partResponse.RequiresAuthentication && partResponse?.Errors.Any() == false)
+                            {
+                                var part = (Product?)partResponse.Response;
+                                if (part != null)
+                                    digikeyResponse.Products.Add(part);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, $"[{nameof(DigikeyApi)}]: {ex.GetBaseException().Message}");
+                            apiResponse.Errors.Add($"Error fetching product details on supplier part number '{WebUtility.HtmlEncode(supplierPartNumbers)}': {ex.GetBaseException().Message}");
+
                         }
                     }
+
+                    apiResponses[nameof(DigikeyApi)].IsSuccess = digikeyResponse.Products.Any();
                 }
             }
 
             if (mouserApi.Configuration.IsConfigured)
             {
-                var apiResponse = await mouserApi.SearchAsync(searchKeywords, partType, mountingType);
+                IApiResponse? apiResponse = null;
+                try
+                {
+                    apiResponse = await mouserApi.SearchAsync(searchKeywords, partType, mountingType);
+                }
+                catch (MouserErrorsException ex)
+                {
+                    _logger.LogError(ex, $"[{nameof(MouserApi)}]: {string.Join(", ", ex.Errors)}");
+                    apiResponse = new ApiResponse(ex.Errors.Select(x => x.Message).ToList(), nameof(MouserApi));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"[{nameof(MouserApi)}]: {ex.GetBaseException().Message}");
+                    apiResponse = new ApiResponse(new List<string> { ex.GetBaseException().Message }, nameof(MouserApi));
+                }
+                apiResponses.Add(nameof(MouserApi), new Model.Integrations.ApiResponseState(false, apiResponse));
                 if (apiResponse.RequiresAuthentication)
-                    return ServiceResult<PartResults>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
+                    return ServiceResult<PartResults?>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
                 if (apiResponse.Warnings?.Any() == true)
                 {
                     _logger.LogWarning($"[{apiResponse.ApiName}]: {string.Join(". ", apiResponse.Warnings)}");
@@ -780,15 +973,26 @@ namespace Binner.Common.Services
                 if (apiResponse.Errors?.Any() == true)
                 {
                     _logger.LogError($"[{apiResponse.ApiName}]: {string.Join(". ", apiResponse.Errors)}");
-                    return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
+                    //return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
                 }
 
                 mouserResponse = (SearchResultsResponse?)apiResponse.Response;
+                apiResponses[nameof(MouserApi)].IsSuccess = mouserResponse?.SearchResults?.Parts?.Any() == true;
             }
 
             if (nexarApi.Configuration.IsConfigured)
             {
-                var apiResponse = await nexarApi.SearchAsync(searchKeywords, partType, mountingType);
+                IApiResponse? apiResponse = null;
+                try
+                {
+                    apiResponse = await nexarApi.SearchAsync(searchKeywords, partType, mountingType);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"[{nameof(NexarApi)}]: {ex.GetBaseException().Message}");
+                    apiResponse = new ApiResponse(new List<string> { ex.GetBaseException().Message }, nameof(NexarApi));
+                }
+                apiResponses.Add(nameof(NexarApi), new Model.Integrations.ApiResponseState(false, apiResponse));
                 if (apiResponse.RequiresAuthentication)
                     return ServiceResult<PartResults>.Create(true, apiResponse.RedirectUrl ?? string.Empty, apiResponse.Errors, apiResponse.ApiName);
                 if (apiResponse.Warnings?.Any() == true)
@@ -798,15 +1002,28 @@ namespace Binner.Common.Services
                 if (apiResponse.Errors?.Any() == true)
                 {
                     _logger.LogError($"[{apiResponse.ApiName}]: {string.Join(". ", apiResponse.Errors)}");
-                    return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
+                    //return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
                 }
                 nexarResponse = (NexarPartResults?)apiResponse.Response;
+                apiResponses[nameof(NexarApi)].IsSuccess = nexarResponse?.Parts?.Any() == true;
             }
 
             if (swarmApi.Configuration.IsConfigured)
             {
-                //var apiResponse = await swarmApi.SearchAsync(partNumber, partType, mountingType);
-                var apiResponse = await swarmApi.SearchAsync(partNumber);
+                IApiResponse? apiResponse = null;
+                //apiResponse = await swarmApi.SearchAsync(partNumber, partType, mountingType);
+                try
+                {
+                    apiResponse = await swarmApi.SearchAsync(partNumber);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"[{nameof(SwarmApi)}]: {ex.GetBaseException().Message}");
+                    apiResponse = new ApiResponse(new List<string> { ex.GetBaseException().Message }, nameof(SwarmApi));
+
+                }
+                apiResponses.Add(nameof(SwarmApi), new Model.Integrations.ApiResponseState(false, apiResponse));
+
                 if (apiResponse.Warnings?.Any() == true)
                 {
                     _logger.LogWarning($"[{apiResponse.ApiName}]: {string.Join(". ", apiResponse.Warnings)}");
@@ -814,15 +1031,26 @@ namespace Binner.Common.Services
                 if (apiResponse.Errors?.Any() == true)
                 {
                     _logger.LogError($"[{apiResponse.ApiName}]: {string.Join(". ", apiResponse.Errors)}");
-                    return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
+                    //return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
                 }
 
                 swarmResponse = (SwarmApi.Response.SearchPartResponse?)apiResponse.Response ?? new SwarmApi.Response.SearchPartResponse();
+                apiResponses[nameof(SwarmApi)].IsSuccess = swarmResponse.Parts?.Any() == true;
             }
 
             if (arrowApi.Configuration.IsConfigured)
             {
-                var apiResponse = await arrowApi.SearchAsync(searchKeywords, partType, mountingType);
+                IApiResponse? apiResponse = null;
+                try
+                {
+                    apiResponse = await arrowApi.SearchAsync(searchKeywords, partType, mountingType);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"[{nameof(ArrowApi)}]: {ex.GetBaseException().Message}");
+                    apiResponse = new ApiResponse(new List<string> { ex.GetBaseException().Message }, nameof(ArrowApi));
+                }
+                apiResponses.Add(nameof(ArrowApi), new Model.Integrations.ApiResponseState(false, apiResponse));
                 if (apiResponse.Warnings?.Any() == true)
                 {
                     _logger.LogWarning($"[{apiResponse.ApiName}]: {string.Join(". ", apiResponse.Warnings)}");
@@ -830,10 +1058,26 @@ namespace Binner.Common.Services
                 if (apiResponse.Errors?.Any() == true)
                 {
                     _logger.LogError($"[{apiResponse.ApiName}]: {string.Join(". ", apiResponse.Errors)}");
-                    return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
+                    //return ServiceResult<PartResults>.Create(apiResponse.Errors, apiResponse.ApiName);
                 }
 
                 arrowResponse = (ArrowResponse?)apiResponse.Response;
+                apiResponses[nameof(ArrowApi)].IsSuccess = arrowResponse?.ItemServiceResult?.Data?.Any() == true;
+            }
+
+            if (!apiResponses.Any(x => x.Value.IsSuccess))
+            {
+                if (apiResponses.Any(x => x.Value.Response?.Errors.Any() == true))
+                {
+                    // there are errors, and no successful responses
+                    var errors = apiResponses
+                        .Where(x => x.Value.Response != null && x.Value.Response.Errors.Any())
+                        .SelectMany(x => x.Value.Response!.Errors.Select(errorMessage => $"[{x.Value.Response.ApiName}] {errorMessage}")).ToList();
+                    var apiNames = apiResponses.Where(x => x.Value.Response?.Errors.Any() == true).GroupBy(x => x.Key);
+                    var apiName = "Multiple";
+                    if (apiNames.Count() == 1) apiName = apiNames.First().Key;
+                    return ServiceResult<PartResults>.Create(errors, apiName);
+                }
             }
 
             var partTypes = await _storageProvider.GetPartTypesAsync(_requestContext.GetUserContext());
@@ -841,7 +1085,7 @@ namespace Binner.Common.Services
             var datasheetUrls = new List<NameValuePair<DatasheetSource>>();
 
             // fetch part if it's in inventory
-            var inventoryPart = await GetPartAsync(partNumber);
+            var inventoryPart = await GetPartAsync(new GetPartRequest { PartNumber = partNumber });
             if (inventoryPart != null && !string.IsNullOrEmpty(inventoryPart.DatasheetUrl))
                 datasheetUrls.Add(new NameValuePair<DatasheetSource>(inventoryPart.ManufacturerPartNumber ?? string.Empty, new DatasheetSource($"https://{_configuration.ResourceSource}/{MissingDatasheetCoverName}", inventoryPart.DatasheetUrl, inventoryPart.ManufacturerPartNumber ?? string.Empty, inventoryPart.Description ?? string.Empty, inventoryPart.Manufacturer ?? string.Empty)));
             if (inventoryPart != null)
@@ -898,7 +1142,12 @@ namespace Binner.Common.Services
             response.ProductImages = productImageUrls.DistinctBy(x => x.Value).ToList();
             response.Datasheets = datasheetUrls.DistinctBy(x => x.Value).ToList();
 
-            return ServiceResult<PartResults>.Create(response);
+            var serviceResult = ServiceResult<PartResults>.Create(response);
+            if (apiResponses.Any(x => x.Value.Response != null && x.Value.Response.Errors.Any()))
+                serviceResult.Errors = apiResponses
+                    .Where(x => x.Value.Response != null && x.Value.Response.Errors.Any())
+                    .SelectMany(x => x.Value.Response!.Errors.Select(errorMessage => $"[{x.Value.Response.ApiName}] {errorMessage}"));
+            return serviceResult;
 
             void ProcessSwarmResponse(string partNumber, PartResults response, SwarmApi.Response.SearchPartResponse swarmResponse, ICollection<PartType> partTypes, List<NameValuePair<string>> productImageUrls, List<NameValuePair<DatasheetSource>> datasheetUrls)
             {
@@ -969,7 +1218,7 @@ namespace Binner.Common.Services
                             ManufacturerId = x.ManufacturerId,
                             ManufacturerName = x.ManufacturerName,
                             Name = x.Name,
-                            Package = x.Package.Select(p => new Package
+                            Package = x.Package.Select(p => new Model.Swarm.Package
                             {
                                 Name = p.Name,
                                 PackageId = p.PackageId,
@@ -1026,7 +1275,7 @@ namespace Binner.Common.Services
                                          .ThenBy(x => x.ImageType))
                             {
                                 var imageUrl = GetImageUrl(image);
-                                if (!string.IsNullOrEmpty(imageUrl) 
+                                if (!string.IsNullOrEmpty(imageUrl)
                                     && !productImageUrls.Any(x => x.Value?.Equals(imageUrl, ComparisonType) == true)
                                     && imagesAdded < maxImagesPerSupplier && totalImages < maxImagesTotal)
                                 {
@@ -1474,15 +1723,15 @@ namespace Binner.Common.Services
                         {
                             if (!string.IsNullOrEmpty(datasheetUri.Url))
                             {
-                                var datasheetSource = new DatasheetSource(Guid.Empty, 
-                                    0, 
+                                var datasheetSource = new DatasheetSource(Guid.Empty,
+                                    0,
                                     datasheetUri.PageCount,
-                                    $"https://{_configuration.ResourceSource}/{MissingDatasheetCoverName}", 
-                                    datasheetUri.Url, 
+                                    $"https://{_configuration.ResourceSource}/{MissingDatasheetCoverName}",
+                                    datasheetUri.Url,
                                     manufacturerPartNumber,
-                                    "", 
-                                    part.Manufacturer?.Name, 
-                                    datasheetUri.SourceUrl, 
+                                    "",
+                                    part.Manufacturer?.Name,
+                                    datasheetUri.SourceUrl,
                                     null);
                                 datasheetUrls.Add(new NameValuePair<DatasheetSource>(manufacturerPartNumber, datasheetSource));
                             }
