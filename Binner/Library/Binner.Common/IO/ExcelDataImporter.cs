@@ -149,52 +149,6 @@ namespace Binner.Common.IO
 
                                             assignment.PartName = partNumber;
                                             assignment.PartId   = part.PartId;
-                                            /*                                        var metadataResponse = await _partService.GetPartInformationAsync(mappedPart.PartNumber);
-                                                                                    if (metadataResponse.Response != null)
-                                                                                    {
-                                                                                        var digikeyParts = metadataResponse.Response.Parts
-                                                                                            .Where(x =>
-                                                                                                x.Supplier?.Equals("Digikey", StringComparison.InvariantCultureIgnoreCase) == true)
-                                                                                            .OrderByDescending(x => x.DatasheetUrls.Any())
-                                                                                            .ThenBy(x => x.Cost)
-                                                                                            .ToList();
-                                                                                        var mouserParts = metadataResponse.Response.Parts
-                                                                                            .Where(x => x.Supplier?.Equals("Mouser", StringComparison.InvariantCultureIgnoreCase) ==
-                                                                                                        true)
-                                                                                            .OrderByDescending(x => x.DatasheetUrls.Any())
-                                                                                            .ThenBy(x => x.Cost)
-                                                                                            .ToList();
-                                                                                        var arrowParts = metadataResponse.Response.Parts.Where(x => x.Supplier.Equals("Arrow", StringComparison.InvariantCultureIgnoreCase)).OrderByDescending(x => x.DatasheetUrls.Any()).ThenBy(x => x.Cost).ToList();
-                                                                                        var metadata = metadataResponse.Response.Parts.FirstOrDefault();
-                                                                                        if (metadata != null)
-                                                                                        {
-                                                                                            var partType = partTypes.FirstOrDefault(x => x.Name == metadata.PartType) ??
-                                                                                                           defaultPartType;
-                                                                                            mappedPart.PartTypeId = partType.PartTypeId;
-                                                                                            mappedPart.MountingTypeId = metadata.MountingTypeId;
-                                                                                            mappedPart.Description = metadata.Description;
-                                                                                            mappedPart.DatasheetUrl = metadata.DatasheetUrls.FirstOrDefault();
-                                                                                            mappedPart.DigiKeyPartNumber = digikeyParts.FirstOrDefault()?.SupplierPartNumber;
-                                                                                            mappedPart.MouserPartNumber = mouserParts.FirstOrDefault()?.SupplierPartNumber;
-                                                                                            mappedPart.ArrowPartNumber = arrowParts.FirstOrDefault()?.SupplierPartNumber;
-                                                                                            mappedPart.ImageUrl = metadata.ImageUrl;
-                                                                                            mappedPart.Manufacturer = metadata.Manufacturer;
-                                                                                            mappedPart.ManufacturerPartNumber = metadata.ManufacturerPartNumber;
-                                                                                            mappedPart.Keywords = metadata.Keywords ?? new List<string>();
-                                                                                            mappedPart.LowStockThreshold = 10;
-                                                                                            mappedPart.ProductUrl = metadata.ProductUrl;
-                                                                                            mappedPart.PackageType = metadata.PackageType;
-                                                                                            mappedPart.Cost = metadata.Cost;
-                                                                                        }
-                                                                                        else
-                                                                                        {
-                                                                                            // map some default values as we don't know what this is
-                                                                                            mappedPart.PartTypeId = defaultPartType.PartTypeId;
-                                                                                            mappedPart.MountingTypeId = (int)MountingType.None;
-                                                                                        }
-                                                                                    }
-                                            */
-
                                         }
 
                                         try
