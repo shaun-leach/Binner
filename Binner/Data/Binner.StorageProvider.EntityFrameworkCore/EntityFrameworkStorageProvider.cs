@@ -3,8 +3,10 @@ using Binner.Data;
 using Binner.Global.Common;
 using Binner.LicensedProvider;
 using Binner.Model;
+using Binner.Model.Requests;
 using Binner.Model.Responses;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using TypeSupport.Extensions;
@@ -21,8 +23,9 @@ namespace Binner.StorageProvider.EntityFrameworkCore
         private readonly IMapper _mapper;
         private readonly IPartTypesCache _partTypesCache;
         private readonly ILicensedStorageProvider _licensedStorageProvider;
+        private readonly ILogger<EntityFrameworkStorageProvider> _logger;
 
-        public EntityFrameworkStorageProvider(IDbContextFactory<BinnerContext> contextFactory, IMapper mapper, string providerName, IDictionary<string, string> config, IPartTypesCache partTypesCache, ILicensedStorageProvider licensedStorageProvider)
+        public EntityFrameworkStorageProvider(IDbContextFactory<BinnerContext> contextFactory, IMapper mapper, string providerName, IDictionary<string, string> config, IPartTypesCache partTypesCache, ILicensedStorageProvider licensedStorageProvider, ILogger<EntityFrameworkStorageProvider> logger)
         {
             _contextFactory = contextFactory;
             _mapper = mapper;
@@ -30,6 +33,7 @@ namespace Binner.StorageProvider.EntityFrameworkCore
             _config = config;
             _partTypesCache = partTypesCache;
             _licensedStorageProvider = licensedStorageProvider;
+            _logger = logger;
         }
 
         public async Task<Part> AddPartAsync(Part part, IUserContext? userContext)
@@ -505,7 +509,10 @@ INNER JOIN (
             if (userContext == null) throw new ArgumentNullException(nameof(userContext));
             await using var context = await _contextFactory.CreateDbContextAsync();
             var entity = await context.OAuthRequests
-                .FirstOrDefaultAsync(x => x.Provider == authRequest.Provider && x.OrganizationId == userContext.OrganizationId);
+                .FirstOrDefaultAsync(x => x.Provider == authRequest.Provider 
+                    && x.OrganizationId == userContext.OrganizationId 
+                    && x.UserId == userContext.UserId
+                );
             if (entity != null)
             {
                 entity = _mapper.Map(authRequest, entity);
@@ -518,11 +525,13 @@ INNER JOIN (
 
         public async Task<OAuthAuthorization?> GetOAuthRequestAsync(Guid requestId, IUserContext? userContext)
         {
-            if (userContext == null) throw new ArgumentNullException(nameof(userContext));
             await using var context = await _contextFactory.CreateDbContextAsync();
+            _logger.LogDebug($"{nameof(GetOAuthRequestAsync)}() RequestId: {requestId} OrganizationId: {userContext?.OrganizationId} UserId: {userContext?.UserId}");
             var entity = await context.OAuthRequests
-                .Where(x => x.RequestId == requestId && x.OrganizationId == userContext.OrganizationId)
+                .Where(x => x.RequestId == requestId)
+                .WhereIf(userContext != null, x => x.OrganizationId == userContext!.OrganizationId && x.UserId == userContext.UserId)
                 .FirstOrDefaultAsync();
+            _logger.LogDebug($"{nameof(GetOAuthRequestAsync)} result Id: {entity?.OAuthRequestId} AuthCode: {entity?.AuthorizationCode} AuthorizationReceived: {entity?.AuthorizationReceived}");
             return _mapper.Map<OAuthAuthorization>(entity);
         }
 
@@ -539,7 +548,10 @@ INNER JOIN (
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             var entities = await context.OAuthCredentials
-                .Where(x => x.OrganizationId == userContext.OrganizationId)
+                .Where(x =>
+                    (x.UserId == userContext.UserId || x.UserId == null || x.UserId == 0)
+                    && (x.OrganizationId == userContext.OrganizationId || x.OrganizationId == null || x.OrganizationId == 0)
+                    )
                 .ToListAsync();
             return _mapper.Map<ICollection<OAuthCredential>>(entities);
         }
@@ -959,7 +971,11 @@ INNER JOIN (
             if (userContext == null) throw new ArgumentNullException(nameof(userContext));
             await using var context = await _contextFactory.CreateDbContextAsync();
             var entity = await context.OAuthCredentials
-                .Where(x => x.Provider == providerName && x.UserId == userContext.UserId)
+                .Where(
+                    x => x.Provider == providerName
+                    && (x.UserId == userContext.UserId || x.UserId == null || x.UserId == 0)
+                    && (x.OrganizationId == userContext.OrganizationId || x.OrganizationId == null || x.OrganizationId == 0)
+                    )
                 .FirstOrDefaultAsync();
             if (entity == null)
                 return null;
@@ -1372,7 +1388,10 @@ INNER JOIN (
             if (userContext == null) throw new ArgumentNullException(nameof(userContext));
             await using var context = await _contextFactory.CreateDbContextAsync();
             var entity = await context.OAuthCredentials
-                .FirstOrDefaultAsync(x => x.Provider == providerName && x.UserId == userContext.UserId);
+                .FirstOrDefaultAsync(x => x.Provider == providerName
+                    && (x.UserId == userContext.UserId || x.UserId == null || x.UserId == 0)
+                    && (x.OrganizationId == userContext.OrganizationId || x.OrganizationId == null || x.OrganizationId == 0)
+                );
             if (entity != null)
                 context.Remove(entity);
             await context.SaveChangesAsync();
@@ -1384,9 +1403,11 @@ INNER JOIN (
             await using var context = await _contextFactory.CreateDbContextAsync();
             // insert or update
             var entity = await context.OAuthCredentials
-                .FirstOrDefaultAsync(x => x.Provider == credential.Provider 
+                .OrderByDescending(x => x.DateModifiedUtc)
+                .FirstOrDefaultAsync(x => x.Provider == credential.Provider
+                    && (x.UserId == userContext.UserId || x.UserId == null || x.UserId == 0)
                     && (x.OrganizationId == userContext.OrganizationId || x.OrganizationId == null || x.OrganizationId == 0)
-                    && (x.UserId == userContext.UserId || x.UserId == null || x.UserId == 0));
+                    );
             if (entity != null)
             {
                 // update
