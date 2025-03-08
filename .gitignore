@@ -545,3 +545,5 @@ Binner/Binner.Web/ClientApp/.vscode/settings.json
 *.vtg
 *.vpw
 *.vpwhist
+*.vpwwildcardcache
+

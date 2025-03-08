@@ -667,9 +667,6 @@ export function Bom(props) {
               <Table.HeaderCell style={{ width: "100px" }} sorted={column === "partType" ? direction : null} onClick={handleSort("partType")}>
                 {t("label.partType", "Part Type")}
               </Table.HeaderCell>
-              <Table.HeaderCell style={{ width: "102px" }} sorted={column === "cost" ? direction : null} onClick={handleSort("cost")}>
-                {t("label.cost", "Cost")}
-              </Table.HeaderCell>
               <Table.HeaderCell sorted={column === "quantity" ? direction : null} onClick={handleSort("quantity")}>
                 <Popup
                   mouseEnterDelay={PopupDelayMs}
@@ -683,6 +680,28 @@ export function Bom(props) {
                   content={<p>{t("popup.bom.inventoryQuantity", "The quantity of parts currently in inventory")}</p>}
                   trigger={<span>{t("label.inStock", "In Stock")}</span>}
                 />
+              </Table.HeaderCell>
+              <Table.HeaderCell style={{ width: "110px" }} sorted={column === "schematicReferenceId" ? direction : null} onClick={handleSort("schematicReferenceId")}>
+                <Popup
+                  wide="very"
+                  mouseEnterDelay={PopupDelayMs}
+                  content={
+                    <p>
+                      <Trans i18nKey="popup.bom.schematicReferenceId">
+                        Your custom <Icon name="hashtag" /> schematic reference Id(s) that identify the part on the PCB silkscreen.
+                        <br />
+                        Examples: <i>D1</i>, <i>C2</i>, <i>Q1</i>
+                      </Trans>
+                    </p>
+                  }
+                  trigger={<span>{t("label.schematicReferenceIds", "Schematic Reference Id(s)")}</span>}
+                />
+              </Table.HeaderCell>
+              <Table.HeaderCell style={{ width: "200px" }} sorted={column === "location" ? direction : null} onClick={handleSort("location")}>
+                {t("label.location", "Location")}
+              </Table.HeaderCell>
+              <Table.HeaderCell style={{ width: "102px" }} sorted={column === "cost" ? direction : null} onClick={handleSort("cost")}>
+                {t("label.cost", "Cost")}
               </Table.HeaderCell>
               <Table.HeaderCell sorted={column === "leadTime" ? direction : null} onClick={handleSort("leadTime")}>
                 {t("label.leadTime", "Lead Time")}
@@ -700,22 +719,6 @@ export function Bom(props) {
                     </p>
                   }
                   trigger={<span>{t("label.referenceIds", "Reference Id(s)")}</span>}
-                />
-              </Table.HeaderCell>
-              <Table.HeaderCell style={{ width: "110px" }} sorted={column === "schematicReferenceId" ? direction : null} onClick={handleSort("schematicReferenceId")}>
-                <Popup
-                  wide="very"
-                  mouseEnterDelay={PopupDelayMs}
-                  content={
-                    <p>
-                      <Trans i18nKey="popup.bom.schematicReferenceId">
-                        Your custom <Icon name="hashtag" /> schematic reference Id(s) that identify the part on the PCB silkscreen.
-                        <br />
-                        Examples: <i>D1</i>, <i>C2</i>, <i>Q1</i>
-                      </Trans>
-                    </p>
-                  }
-                  trigger={<span>{t("label.schematicReferenceIds", "Schematic Reference Id(s)")}</span>}
                 />
               </Table.HeaderCell>
               <Table.HeaderCell style={{ width: "200px" }} sorted={column === "description" ? direction : null} onClick={handleSort("description")}>
@@ -784,30 +787,6 @@ export function Bom(props) {
                       mouseEnterDelay={PopupDelayMs}
                       content={
                         <p>
-                          <Trans i18nKey="popup.bom.bomCost">Edit the part cost</Trans>
-                        </p>
-                      }
-                      trigger={
-                        <Input
-                          label={getCurrencySymbol(bomPart.part?.currency || bomPart.currency || "USD")}
-                          type="text"
-                          transparent
-                          name="cost"
-                          onBlur={(e) => saveColumn(e, bomPart)}
-                          onChange={(e, control) => handlePartsInlineChange(e, control, bomPart)}
-                          value={bomPart.part?.cost || bomPart.cost || 0}
-                          fluid
-                          className="inline-editable"
-                        />
-                      }
-                    />
-                  </Table.Cell>
-                  <Table.Cell>
-                    <Popup
-                      wide
-                      mouseEnterDelay={PopupDelayMs}
-                      content={
-                        <p>
                           <Trans i18nKey="popup.bom.bomQuantity">
                             Edit the <Icon name="clipboard list" /> BOM quantity required
                           </Trans>
@@ -852,32 +831,6 @@ export function Bom(props) {
                       }
                     />
                   </Table.Cell>
-                  <Table.Cell>{bomPart.part?.leadTime || ""}</Table.Cell>
-                  <Table.Cell>
-                    <Popup
-                      wide="very"
-                      mouseEnterDelay={PopupDelayMs}
-                      content={
-                        <p>
-                          <Trans i18nKey="popup.bom.referenceId">
-                            Edit your custom <Icon name="terminal" /> reference Id(s) you can use for identifying this part.
-                          </Trans>
-                        </p>
-                      }
-                      trigger={
-                        <Input
-                          type="text"
-                          transparent
-                          name="referenceId"
-                          onBlur={(e) => saveColumn(e, bomPart)}
-                          onChange={(e, control) => handlePartsInlineChange(e, control, bomPart)}
-                          value={bomPart.referenceId || ""}
-                          fluid
-                          className="inline-editable"
-                        />
-                      }
-                    />
-                  </Table.Cell>
                   <Table.Cell>
                     <Popup
                       wide="very"
@@ -899,6 +852,57 @@ export function Bom(props) {
                           onBlur={(e) => saveColumn(e, bomPart)}
                           onChange={(e, control) => handlePartsInlineChange(e, control, bomPart)}
                           value={bomPart.schematicReferenceId || ""}
+                          fluid
+                          className="inline-editable"
+                        />
+                      }
+                    />
+                  </Table.Cell>
+                  <Table.Cell>{bomPart.part?.location} - {bomPart.part?.binNumber}</Table.Cell>
+                  <Table.Cell>
+                    <Popup
+                      wide
+                      mouseEnterDelay={PopupDelayMs}
+                      content={
+                        <p>
+                          <Trans i18nKey="popup.bom.bomCost">Edit the part cost</Trans>
+                        </p>
+                      }
+                      trigger={
+                        <Input
+                          label={getCurrencySymbol(bomPart.part?.currency || bomPart.currency || "USD")}
+                          type="text"
+                          transparent
+                          name="cost"
+                          onBlur={(e) => saveColumn(e, bomPart)}
+                          onChange={(e, control) => handlePartsInlineChange(e, control, bomPart)}
+                          value={bomPart.part?.cost || bomPart.cost || 0}
+                          fluid
+                          className="inline-editable"
+                        />
+                      }
+                    />
+                  </Table.Cell>
+                  <Table.Cell>{bomPart.part?.leadTime || ""}</Table.Cell>
+                  <Table.Cell>
+                    <Popup
+                      wide="very"
+                      mouseEnterDelay={PopupDelayMs}
+                      content={
+                        <p>
+                          <Trans i18nKey="popup.bom.referenceId">
+                            Edit your custom <Icon name="terminal" /> reference Id(s) you can use for identifying this part.
+                          </Trans>
+                        </p>
+                      }
+                      trigger={
+                        <Input
+                          type="text"
+                          transparent
+                          name="referenceId"
+                          onBlur={(e) => saveColumn(e, bomPart)}
+                          onChange={(e, control) => handlePartsInlineChange(e, control, bomPart)}
+                          value={bomPart.referenceId || ""}
                           fluid
                           className="inline-editable"
                         />
