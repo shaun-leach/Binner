@@ -59,6 +59,8 @@
 
         public Part Part { get; set; } = null!;
 
+        public ICollection<CustomValue> CustomFields { get; set; } = new List<CustomValue>();
+
         /// <summary>
         /// Optional user id to associate
         /// </summary>

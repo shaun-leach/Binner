@@ -20,9 +20,9 @@ namespace Binner.Common.Services
         private readonly IStorageProvider _storageProvider;
         private readonly IMapper _mapper;
         private readonly IDbContextFactory<BinnerContext> _contextFactory;
-        private readonly RequestContextAccessor _requestContext;
+        private readonly IRequestContextAccessor _requestContext;
 
-        public ProjectService(IMapper mapper, IStorageProvider storageProvider, RequestContextAccessor requestContextAccessor, IDbContextFactory<BinnerContext> contextFactory)
+        public ProjectService(IMapper mapper, IStorageProvider storageProvider, IRequestContextAccessor requestContextAccessor, IDbContextFactory<BinnerContext> contextFactory)
         {
             _mapper = mapper;
             _storageProvider = storageProvider;
@@ -130,7 +130,7 @@ namespace Binner.Common.Services
             return await _storageProvider.GetProjectsAsync(request, _requestContext.GetUserContext());
         }
 
-        public async Task<Project> UpdateProjectAsync(Project project)
+        public async Task<Project?> UpdateProjectAsync(Project project)
         {
             project.DateModifiedUtc = DateTime.UtcNow;
             return await _storageProvider.UpdateProjectAsync(project, _requestContext.GetUserContext());

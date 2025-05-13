@@ -3,6 +3,7 @@ using Binner.Common.IO;
 using Binner.Common.IO.Printing;
 using Binner.Common.Services;
 using Binner.Global.Common;
+using Binner.Model;
 using Binner.Model.Configuration;
 using Binner.Model.IO.Printing.PrinterHardware;
 using Binner.Model.Requests;
@@ -26,7 +27,7 @@ namespace Binner.Web.Controllers
     [Consumes(MediaTypeNames.Application.Json)]
     public class SystemController : ControllerBase
     {
-        private const string AppSettingsFilename = "appsettings.json";
+        private static readonly string _appSettingsFilename = EnvironmentVarConstants.GetEnvOrDefault(EnvironmentVarConstants.Config, AppConstants.AppSettings);
         private readonly ILogger<ProjectController> _logger;
         private readonly WebHostServiceConfiguration _config;
         private readonly ISettingsService _settingsService;
@@ -36,12 +37,12 @@ namespace Binner.Web.Controllers
         private readonly AutoMapper.IMapper _mapper;
         private readonly IServiceContainer _container;
         private readonly IIntegrationCredentialsCacheProvider _credentialProvider;
-        private readonly RequestContextAccessor _requestContext;
+        private readonly IRequestContextAccessor _requestContext;
         private readonly IVersionManagementService _versionManagementService;
         private readonly IBackupProvider _backupProvider;
         private readonly IAdminService _adminService;
 
-        public SystemController(AutoMapper.IMapper mapper, IServiceContainer container, ILogger<ProjectController> logger, WebHostServiceConfiguration config, ISettingsService settingsService, IntegrationService integrationService, ILabelPrinterHardware labelPrinter, FontManager fontManager, RequestContextAccessor requestContextAccessor, IIntegrationCredentialsCacheProvider credentialProvider, IVersionManagementService versionManagementService, IBackupProvider backupProvider, IAdminService adminService)
+        public SystemController(AutoMapper.IMapper mapper, IServiceContainer container, ILogger<ProjectController> logger, WebHostServiceConfiguration config, ISettingsService settingsService, IntegrationService integrationService, ILabelPrinterHardware labelPrinter, FontManager fontManager, IRequestContextAccessor requestContextAccessor, IIntegrationCredentialsCacheProvider credentialProvider, IVersionManagementService versionManagementService, IBackupProvider backupProvider, IAdminService adminService)
         {
             _mapper = mapper;
             _container = container;
@@ -66,10 +67,11 @@ namespace Binner.Web.Controllers
         }
 
         /// <summary>
-        /// Set the system settings
+        /// Save the system settings
         /// </summary>
         /// <returns></returns>
         [HttpPut("settings")]
+        [Authorize(Policy = Binner.Model.Authentication.AuthorizationPolicies.Admin)]
         public IActionResult SaveSettings(SettingsRequest request) 
         {
             try
@@ -92,7 +94,10 @@ namespace Binner.Web.Controllers
                 _credentialProvider.Cache.Clear(new ApiCredentialKey { UserId = user?.UserId ?? 0 });
 
                 var newConfiguration = _mapper.Map<SettingsRequest, WebHostServiceConfiguration>(request, _config);
-                _settingsService.SaveSettingsAs(newConfiguration, nameof(WebHostServiceConfiguration), AppSettingsFilename, true);
+                _settingsService.SaveSettingsAsAsync(newConfiguration, nameof(WebHostServiceConfiguration), _appSettingsFilename, true);
+
+                // also save the custom fields (add/update/remove)
+                _settingsService.SaveCustomFieldsAsync(request.CustomFields);
 
                 // register new configuration
                 _container.RegisterInstance(newConfiguration);
@@ -111,11 +116,12 @@ namespace Binner.Web.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet("settings")]
-        public IActionResult GetSettings()
+        public async Task<IActionResult> GetSettingsAsync()
         {
             try
             {
                 var settingsResponse = _mapper.Map<SettingsResponse>(_config);
+                settingsResponse.CustomFields = await _settingsService.GetCustomFieldsAsync();
                 return Ok(settingsResponse);
             }
             catch (Exception ex)
@@ -130,6 +136,7 @@ namespace Binner.Web.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpPut("/api/settings/testapi")]
+        [Authorize(Policy = Binner.Model.Authentication.AuthorizationPolicies.Admin)]
         public async Task<IActionResult> TestApiAsync(TestApiRequest request)
         {
             try
@@ -153,6 +160,7 @@ namespace Binner.Web.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpPut("/api/settings/forgetcredentials")]
+        [Authorize(Policy = Binner.Model.Authentication.AuthorizationPolicies.Admin)]
         public async Task<IActionResult> ForgetCredentialsAsync(ForgetCachedCredentialsRequest request)
         {
             try
@@ -214,6 +222,7 @@ namespace Binner.Web.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpPost("backup")]
+        [Authorize(Policy = Binner.Model.Authentication.AuthorizationPolicies.Admin)]
         public async Task<IActionResult> BackupAsync()
         {
             try
@@ -234,6 +243,7 @@ namespace Binner.Web.Controllers
         /// <returns></returns>
         [HttpPost("restore")]
         [Consumes("multipart/form-data")]
+        [Authorize(Policy = Binner.Model.Authentication.AuthorizationPolicies.Admin)]
         public async Task<IActionResult> RestoreAsync(IFormFile file)
         {
             try

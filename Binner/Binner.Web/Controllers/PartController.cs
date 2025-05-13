@@ -1,8 +1,11 @@
 ﻿using AnyMapper;
 using Binner.Common;
+using Binner.Common.Extensions;
+using Binner.Common.IO;
 using Binner.Common.IO.Printing;
 using Binner.Common.Services;
 using Binner.Model;
+using Binner.Model.Barcode;
 using Binner.Model.Configuration;
 using Binner.Model.IO.Printing;
 using Binner.Model.IO.Printing.PrinterHardware;
@@ -23,6 +26,7 @@ using System.Net;
 using System.Net.Mime;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using static Binner.Model.Common.SystemDefaults;
 
 namespace Binner.Web.Controllers
 {
@@ -37,19 +41,23 @@ namespace Binner.Web.Controllers
         private readonly IPartService _partService;
         private readonly IPartTypeService _partTypeService;
         private readonly IProjectService _projectService;
+        private readonly IPartScanHistoryService _partScanHistoryService;
+        private readonly IOrderImportHistoryService _orderImportHistoryService;
         private readonly ILabelPrinterHardware _labelPrinter;
         private readonly IBarcodeGenerator _barcodeGenerator;
         private readonly IUserService _userService;
         private readonly IPrintService _printService;
         private readonly ILabelGenerator _labelGenerator;
 
-        public PartController(ILogger<PartController> logger, WebHostServiceConfiguration config, IPartService partService, IPartTypeService partTypeService, IProjectService projectService, ILabelPrinterHardware labelPrinter, IBarcodeGenerator barcodeGenerator, IUserService userService, IPrintService printService, ILabelGenerator labelGenerator)
+        public PartController(ILogger<PartController> logger, WebHostServiceConfiguration config, IPartService partService, IPartTypeService partTypeService, IProjectService projectService, IPartScanHistoryService partScanHistoryService, IOrderImportHistoryService orderImportHistoryService, ILabelPrinterHardware labelPrinter, IBarcodeGenerator barcodeGenerator, IUserService userService, IPrintService printService, ILabelGenerator labelGenerator)
         {
             _logger = logger;
             _config = config;
             _partService = partService;
             _partTypeService = partTypeService;
             _projectService = projectService;
+            _partScanHistoryService = partScanHistoryService;
+            _orderImportHistoryService = orderImportHistoryService;
             _labelPrinter = labelPrinter;
             _barcodeGenerator = barcodeGenerator;
             _userService = userService;
@@ -109,29 +117,84 @@ namespace Binner.Web.Controllers
         [HttpPost]
         public async Task<IActionResult> CreatePartAsync(CreatePartRequest request)
         {
-            if (string.IsNullOrEmpty(request.PartTypeId))
-                return BadRequest($"No part type specified!");
+            if (string.IsNullOrEmpty(request.PartNumber))
+                return BadRequest($"No part number specified!");
 
             var mappedPart = Mapper.Map<CreatePartRequest, Part>(request);
-            mappedPart.Keywords = request.Keywords?.Split(new string[] { " ", "," }, StringSplitOptions.RemoveEmptyEntries);
+            mappedPart.Keywords = request.Keywords?.Split([" ", ","], StringSplitOptions.RemoveEmptyEntries);
 
-            var partType = await GetPartTypeAsync(request.PartTypeId);
-            if (partType == null) return BadRequest($"Invalid Part Type: {request.PartTypeId}");
+            var (partType, errorMessage) = await ValidatePartTypeAsync(request.PartTypeId, request.PartNumber);
+            if (partType == null)
+                return BadRequest(errorMessage);
 
             mappedPart.PartTypeId = partType.PartTypeId;
-            mappedPart.MountingTypeId = GetMountingTypeId(request.MountingTypeId ?? string.Empty);
-
-            if (mappedPart.MountingTypeId < 0) return BadRequest($"Invalid Mounting Type: {request.MountingTypeId}");
+            EnsureValidMountingType(mappedPart, request.MountingTypeId);
 
             var duplicatePartResponse = await CheckForDuplicateAsync(request, mappedPart);
             if (duplicatePartResponse != null)
                 return duplicatePartResponse;
 
             var part = await _partService.AddPartAsync(mappedPart);
+
+            if (request.BarcodeObject != null)
+            {
+                // add the scanned barcode to history
+                await AddScanHistoryAsync(part, request.BarcodeObject);
+            }
+
             var partResponse = Mapper.Map<Part, PartResponse>(part);
             partResponse.PartType = partType.Name;
             partResponse.Keywords = string.Join(" ", part.Keywords ?? new List<string>());
             return Ok(partResponse);
+        }
+
+        private async Task<(PartType? PartType, string? ErrorMessage)> ValidatePartTypeAsync(string? partTypeId, string? partNumber)
+        {
+            var partType = await GetPartTypeAsync(partTypeId);
+
+            if (partType == null)
+            {
+                // new behavior: default to a partType and log the warning
+                _logger.LogWarning($"Unknown part type '{partTypeId}' when creating part '{partNumber}'. Defaulting to {nameof(DefaultPartTypes.Other)}");
+                partType = await GetPartTypeAsync(DefaultPartTypes.Other);
+                if (partType == null)
+                {
+                    var error = $"Unknown default part type '{DefaultPartTypes.Other}' when creating part '{partNumber}'.";
+                    _logger.LogError(error);
+                    return (null, error);
+                }
+            }
+            return (partType, null);
+        }
+
+        private bool EnsureValidMountingType(Part part, string? mountingTypeId)
+        {
+            part.MountingTypeId = GetMountingTypeId(mountingTypeId);
+            return true;
+        }
+
+        private async Task AddScanHistoryAsync(Part part, BarcodeScan b)
+        {
+            var partScanHistory = new PartScanHistory
+            {
+                PartId = part.PartId,
+                RawScan = b.CorrectedValue ?? b.RawValue,
+                BarcodeType = BarcodeTypesHelper.GetBarcodeType(b.Type),
+                CountryOfOrigin = b.Value.GetValue("countryOfOrigin").As<string?>(),
+                Crc = Checksum.Compute(b.CorrectedValue ?? b.RawValue),
+                Description = b.Value.GetValue("description").As<string?>(),
+                Invoice = b.Value.GetValue("invoice").As<string?>(),
+                LotCode = b.Value.GetValue("lotCode").As<string?>(),
+                ManufacturerPartNumber = b.Value.GetValue("mfgPartNumber").As<string?>(),
+                Mid = b.Value.GetValue("mid").As<string?>(),
+                Packlist = b.Value.GetValue("unknown").As<string?>(),
+                Quantity = b.Value.GetValue("quantity").As<int>(),
+                SalesOrder = b.Value.GetValue("salesOrder").As<string?>(),
+                ScannedLabelType = b.ScannedLabelType,
+                Supplier = b.Supplier,
+                SupplierPartNumber = b.Value.GetValue("supplierPartNumber").As<string?>(),
+            };
+            await _partScanHistoryService.AddPartScanHistoryAsync(partScanHistory);
         }
 
         /// <summary>
@@ -142,21 +205,27 @@ namespace Binner.Web.Controllers
         [HttpPut]
         public async Task<IActionResult> UpdatePartAsync(UpdatePartRequest request)
         {
-            if (string.IsNullOrEmpty(request.PartTypeId))
-                return BadRequest($"No part type specified!");
+            if (string.IsNullOrEmpty(request.PartNumber))
+                return BadRequest($"No part number specified!");
 
             var mappedPart = Mapper.Map<UpdatePartRequest, Part>(request);
-            var partType = await GetPartTypeAsync(request.PartTypeId);
-            if (partType == null) return BadRequest($"Invalid Part Type: {request.PartTypeId}");
+            var (partType, errorMessage) = await ValidatePartTypeAsync(request.PartTypeId, request.PartNumber);
+            if (partType == null)
+                return BadRequest(errorMessage);
 
             mappedPart.PartTypeId = partType.PartTypeId;
-            mappedPart.MountingTypeId = GetMountingTypeId(request.MountingTypeId ?? string.Empty);
-
-            if (mappedPart.MountingTypeId < 0) return BadRequest($"Invalid Mounting Type: {request.MountingTypeId}");
+            EnsureValidMountingType(mappedPart, request.MountingTypeId);
 
             mappedPart.PartId = request.PartId;
-            mappedPart.Keywords = request.Keywords?.Split(new string[] { " ", "," }, StringSplitOptions.RemoveEmptyEntries);
+            mappedPart.Keywords = request.Keywords?.Split([" ", ","], StringSplitOptions.RemoveEmptyEntries);
             var part = await _partService.UpdatePartAsync(mappedPart);
+
+            if (request.BarcodeObject != null)
+            {
+                // add the scanned barcode to history
+                await AddScanHistoryAsync(part, request.BarcodeObject);
+            }
+
             var partResponse = Mapper.Map<Part, PartResponse>(part);
             partResponse.PartType = partType.Name;
             partResponse.Keywords = string.Join(" ", part.Keywords ?? new List<string>());
@@ -166,14 +235,14 @@ namespace Binner.Web.Controllers
         [HttpGet("barcode/info")]
         public async Task<IActionResult> GetBarcodeInfoAsync([FromQuery] string barcode)
         {
-            var partDetails = await _partService.GetBarcodeInfoAsync(barcode, ScannedBarcodeType.Product);
+            var partDetails = await _partService.GetBarcodeInfoAsync(barcode, ScannedLabelType.Product);
             return Ok(partDetails);
         }
 
         [HttpGet("barcode/packlist/info")]
         public async Task<IActionResult> GetPacklistBarcodeInfoAsync([FromQuery] string barcode)
         {
-            var partDetails = await _partService.GetBarcodeInfoAsync(barcode, ScannedBarcodeType.Packlist);
+            var partDetails = await _partService.GetBarcodeInfoAsync(barcode, ScannedLabelType.Packlist);
             return Ok(partDetails);
         }
 
@@ -185,47 +254,60 @@ namespace Binner.Web.Controllers
         [HttpPost("bulk")]
         public async Task<IActionResult> CreateBulkPartsAsync(CreateBulkPartRequest request)
         {
+            var addedParts = new List<Part>();
             var updatedParts = new List<Part>();
-            var partsRequested = request.Parts ?? new List<PartBase>();
-            var mappedParts = Mapper.Map<ICollection<PartBase>, ICollection<Part>>(partsRequested);
+            var partsRequested = request.Parts ?? new List<BulkPart>();
+            var mappedParts = Mapper.Map<ICollection<BulkPart>, ICollection<Part>>(partsRequested);
             var partTypes = await _partTypeService.GetPartTypesAsync();
             var defaultPartType = partTypes
                 .FirstOrDefault(x => x.Name?.Equals("Other", StringComparison.InvariantCultureIgnoreCase) == true) ?? partTypes.First();
-            foreach (var mappedPart in mappedParts)
+            foreach (var bulkPart in partsRequested)
             {
                 // does it already exist?
-                if (string.IsNullOrEmpty(mappedPart.PartNumber))
+                if (string.IsNullOrEmpty(bulkPart.PartNumber))
                     continue;
-                var existingSearch = await _partService.FindPartsAsync(mappedPart.PartNumber);
+                var mappedPart = Mapper.Map<BulkPart, Part>(bulkPart);
+                var existingSearch = await _partService.FindPartsAsync(bulkPart.PartNumber);
                 if (existingSearch.Any())
                 {
                     // update it's basic data only
                     var existingPart = existingSearch.First().Result;
-                    existingPart.Quantity = mappedPart.Quantity;
-                    existingPart.Description = mappedPart.Description;
-                    existingPart.Location = mappedPart.Location;
-                    existingPart.BinNumber = mappedPart.BinNumber;
-                    existingPart.BinNumber2 = mappedPart.BinNumber2;
+                    existingPart.Quantity = bulkPart.Quantity;
+                    existingPart.Description = bulkPart.Description;
+                    existingPart.Location = bulkPart.Location;
+                    existingPart.BinNumber = bulkPart.BinNumber;
+                    existingPart.BinNumber2 = bulkPart.BinNumber2;
+                    if (!string.IsNullOrEmpty(bulkPart.SupplierPartNumber) && string.IsNullOrEmpty(existingPart.DigiKeyPartNumber))
+                        existingPart.DigiKeyPartNumber = bulkPart.SupplierPartNumber;
+                    if (string.IsNullOrEmpty(existingPart.DigiKeyPartNumber))
+                        existingPart.DigiKeyPartNumber = bulkPart.DigiKeyPartNumber;
+                    if (string.IsNullOrEmpty(existingPart.MouserPartNumber))
+                        existingPart.MouserPartNumber = bulkPart.MouserPartNumber;
+                    if (string.IsNullOrEmpty(existingPart.ArrowPartNumber))
+                        existingPart.ArrowPartNumber = mappedPart.ArrowPartNumber;
+                    if (string.IsNullOrEmpty(existingPart.TmePartNumber))
+                        existingPart.TmePartNumber = mappedPart.TmePartNumber;
                     updatedParts.Add(await _partService.UpdatePartAsync(existingPart));
                 }
                 else
                 {
+                    // it's a new part
                     var isMapped = false;
-                    var barcode = string.Empty;
+                    var searchBarcode = string.Empty;
                     var partRequested = partsRequested?.Where(x => x.PartNumber == mappedPart.PartNumber).FirstOrDefault();
-                    if (partRequested != null && !string.IsNullOrEmpty(partRequested.Barcode))
-                        barcode = partRequested.Barcode;
+                    var barcode = partRequested?.Barcode;
+                    if (partRequested != null && !string.IsNullOrEmpty(barcode))
+                        searchBarcode = barcode;
                     else
                     {
                         // if it's numeric only, try getting barcode information
                         var isNumber = Regex.Match(@"^\d+$", mappedPart.PartNumber).Success;
-                        if (isNumber) barcode = mappedPart.PartNumber;
-
+                        if (isNumber) searchBarcode = mappedPart.PartNumber;
                     }
 
-                    if (!string.IsNullOrEmpty(barcode))
+                    if (!string.IsNullOrEmpty(searchBarcode))
                     {
-                        var barcodeResult = await _partService.GetBarcodeInfoAsync(barcode, ScannedBarcodeType.Product);
+                        var barcodeResult = await _partService.GetBarcodeInfoAsync(searchBarcode, ScannedLabelType.Product);
                         if (barcodeResult.Response?.Parts.Any() == true)
                         {
                             // convert this entry to a part
@@ -239,7 +321,10 @@ namespace Binner.Web.Controllers
                             mappedPart.ManufacturerPartNumber = entry.ManufacturerPartNumber;
                             mappedPart.Manufacturer = entry.Manufacturer;
                             mappedPart.Description = entry.Description;
-                            mappedPart.DigiKeyPartNumber = entry.SupplierPartNumber;
+                            if (!string.IsNullOrEmpty(bulkPart.SupplierPartNumber))
+                                mappedPart.DigiKeyPartNumber = bulkPart.SupplierPartNumber;
+                            if (!string.IsNullOrEmpty(entry.SupplierPartNumber))
+                                mappedPart.DigiKeyPartNumber = entry.SupplierPartNumber;
                             mappedPart.Keywords = entry.Keywords ?? new List<string>();
                             mappedPart.ImageUrl = entry.ImageUrl;
                             mappedPart.LowStockThreshold = 10;
@@ -300,12 +385,23 @@ namespace Binner.Web.Controllers
                             }
                         }
                     }
-                    updatedParts.Add(await _partService.AddPartAsync(mappedPart));
+                    var newPart = await _partService.AddPartAsync(mappedPart);
+                    addedParts.Add(newPart);
+
+                    if (bulkPart.BarcodeObject != null)
+                    {
+                        // add the scanned barcode to history
+                        await AddScanHistoryAsync(newPart, bulkPart.BarcodeObject);
+                    }
+
                 }
             }
 
-            var partResponse = Mapper.Map<ICollection<Part>, ICollection<PartResponse>>(updatedParts);
-            return Ok(partResponse);
+            return Ok(new BulkPartResponse
+            {
+                Added = Mapper.Map<ICollection<Part>, ICollection<PartResponse>>(addedParts),
+                Updated = Mapper.Map<ICollection<Part>, ICollection<PartResponse>>(updatedParts)
+            });
         }
 
         /// <summary>
@@ -499,7 +595,7 @@ namespace Binner.Web.Controllers
         }
 
         /// <summary>
-        /// External order import parts
+        /// External order import parts into local inventory
         /// </summary>
         /// <param name="request"></param>
         /// <returns></returns>
@@ -509,55 +605,98 @@ namespace Binner.Web.Controllers
             var response = new OrderImportResponse
             {
                 OrderId = request.OrderId,
+                Invoice = request.Invoice,
+                Packlist = request.Packlist,
                 Supplier = request.Supplier
             };
             if (request.Parts == null || request.Parts.Count == 0)
                 return Ok(response);
 
-            foreach (var commonPart in request.Parts)
+            // create an order import history record
+            var history = await _orderImportHistoryService.AddOrderImportHistoryAsync(new OrderImportHistory
+            {
+                SalesOrder = request.OrderId,
+                Supplier = request.Supplier,
+                Invoice = request.Invoice,
+                Packlist = request.Packlist,
+            });
+
+            foreach (var importedPart in request.Parts)
             {
                 try
                 {
-                    var existingParts = await _partService.GetPartsAsync(x => x.ManufacturerPartNumber == commonPart.ManufacturerPartNumber);
+                    var existingParts = await _partService.GetPartsAsync(x => x.ManufacturerPartNumber == importedPart.ManufacturerPartNumber);
                     if (existingParts.Any())
                     {
                         var existingPart = existingParts.First();
-                        // update quantity and cost
+                        // update quantity and cost, as well as fields with no value
                         var existingQuantity = existingPart.Quantity;
-                        existingPart.Quantity += commonPart.QuantityAvailable;
-                        existingPart.Cost = commonPart.Cost;
-                        existingPart.Currency = commonPart.Currency;
+                        existingPart.Quantity += importedPart.QuantityAvailable;
+                        existingPart.Cost = importedPart.Cost;
+                        existingPart.Currency = importedPart.Currency;
+
+                        // fields that may have no current value
+                        if (string.IsNullOrEmpty(existingPart.Description))
+                            existingPart.Description = importedPart.Description;
+                        if (string.IsNullOrEmpty(existingPart.ManufacturerPartNumber))
+                            existingPart.ManufacturerPartNumber = importedPart.ManufacturerPartNumber;
+                        if (string.IsNullOrEmpty(existingPart.DigiKeyPartNumber) && importedPart.Supplier?.Equals("digikey", StringComparison.InvariantCultureIgnoreCase) == true)
+                            existingPart.DigiKeyPartNumber = importedPart.SupplierPartNumber;
+                        if (string.IsNullOrEmpty(existingPart.MouserPartNumber) && importedPart.Supplier?.Equals("mouser", StringComparison.InvariantCultureIgnoreCase) == true)
+                            existingPart.MouserPartNumber = importedPart.SupplierPartNumber;
+                        if (string.IsNullOrEmpty(existingPart.ArrowPartNumber) && importedPart.Supplier?.Equals("arrow", StringComparison.InvariantCultureIgnoreCase) == true)
+                            existingPart.ArrowPartNumber = importedPart.SupplierPartNumber;
+                        if (string.IsNullOrEmpty(existingPart.TmePartNumber) && importedPart.Supplier?.Equals("tme", StringComparison.InvariantCultureIgnoreCase) == true)
+                            existingPart.TmePartNumber = importedPart.SupplierPartNumber;
+                        if (string.IsNullOrEmpty(existingPart.DatasheetUrl))
+                            existingPart.DatasheetUrl = importedPart.DatasheetUrls.FirstOrDefault();
+                        if (string.IsNullOrEmpty(existingPart.ProductUrl))
+                            existingPart.ProductUrl = importedPart.ProductUrl;
+                        if (string.IsNullOrEmpty(existingPart.Manufacturer))
+                            existingPart.Manufacturer = importedPart.Manufacturer;
+                        // add the reference line as an extension value
+                        if (string.IsNullOrEmpty(existingPart.ExtensionValue1) || existingPart.ExtensionValue1 == importedPart.Reference)
+                            existingPart.ExtensionValue1 = importedPart.Reference;
+                        else if (string.IsNullOrEmpty(existingPart.ExtensionValue2))
+                            existingPart.ExtensionValue2 = importedPart.Reference;
+
                         existingPart = await _partService.UpdatePartAsync(existingPart);
-                        var successPart = Mapper.Map<CommonPart, ImportPartResponse>(commonPart);
-                        if (string.IsNullOrEmpty(commonPart.PartType))
+                        var successPart = Mapper.Map<CommonPart, ImportPartResponse>(importedPart);
+                        if (string.IsNullOrEmpty(importedPart.PartType))
                         {
                             successPart.PartType = SystemDefaults.DefaultPartTypes.Other.ToString();
                         }
                         successPart.QuantityExisting = existingQuantity;
-                        successPart.QuantityAdded = commonPart.QuantityAvailable;
+                        successPart.QuantityAdded = importedPart.QuantityAvailable;
                         successPart.IsImported = true;
                         response.Parts.Add(successPart);
                     }
                     else
                     {
                         // create new part
-                        var part = Mapper.Map<CommonPart, Part>(commonPart);
-                        part.Quantity += commonPart.QuantityAvailable;
-                        part.Cost = commonPart.Cost;
-                        part.Currency = commonPart.Currency;
-                        if (commonPart.Supplier?.Equals("digikey", StringComparison.InvariantCultureIgnoreCase) == true)
-                            part.DigiKeyPartNumber = commonPart.SupplierPartNumber;
-                        if (commonPart.Supplier?.Equals("mouser", StringComparison.InvariantCultureIgnoreCase) == true)
-                            part.MouserPartNumber = commonPart.SupplierPartNumber;
-                        if (commonPart.Supplier?.Equals("arrow", StringComparison.InvariantCultureIgnoreCase) == true)
-                            part.ArrowPartNumber = commonPart.SupplierPartNumber;
-                        part.DatasheetUrl = commonPart.DatasheetUrls.FirstOrDefault();
-                        part.PartNumber = commonPart.ManufacturerPartNumber;
+                        var part = Mapper.Map<CommonPart, Part>(importedPart);
+                        part.Quantity += importedPart.QuantityAvailable;
+                        part.Cost = importedPart.Cost;
+                        part.Currency = importedPart.Currency;
+                        if (importedPart.Supplier?.Equals("digikey", StringComparison.InvariantCultureIgnoreCase) == true)
+                            part.DigiKeyPartNumber = importedPart.SupplierPartNumber;
+                        if (importedPart.Supplier?.Equals("mouser", StringComparison.InvariantCultureIgnoreCase) == true)
+                            part.MouserPartNumber = importedPart.SupplierPartNumber;
+                        if (importedPart.Supplier?.Equals("arrow", StringComparison.InvariantCultureIgnoreCase) == true)
+                            part.ArrowPartNumber = importedPart.SupplierPartNumber;
+                        if (importedPart.Supplier?.Equals("tme", StringComparison.InvariantCultureIgnoreCase) == true)
+                            part.TmePartNumber = importedPart.SupplierPartNumber;
+                        part.DatasheetUrl = importedPart.DatasheetUrls.FirstOrDefault();
+                        part.ProductUrl = importedPart.ProductUrl;
+                        part.Manufacturer = importedPart.Manufacturer;
+                        part.PartNumber = importedPart.ManufacturerPartNumber;
+                        // add the reference line as an extension value
+                        part.ExtensionValue1 = importedPart.Reference;
 
                         PartType? partType = null;
-                        if (!string.IsNullOrEmpty(commonPart.PartType))
+                        if (!string.IsNullOrEmpty(importedPart.PartType))
                         {
-                            partType = await GetPartTypeAsync(commonPart.PartType);
+                            partType = await GetPartTypeAsync(importedPart.PartType);
                             part.PartTypeId = partType?.PartTypeId ?? (int)SystemDefaults.DefaultPartTypes.Other;
                         }
                         else if (part.PartTypeId == 0)
@@ -567,18 +706,39 @@ namespace Binner.Web.Controllers
 
                         part.DateCreatedUtc = DateTime.UtcNow;
                         part = await _partService.AddPartAsync(part);
-                        var successPart = Mapper.Map<CommonPart, ImportPartResponse>(commonPart);
-                        successPart.PartType = partType?.Name ?? SystemDefaults.DefaultPartTypes.Other.ToString();
+                        if (part != null)
+                        {
+                            // create an order import history line item
+                            if (history != null)
+                            {
+                                var historyLineItem = await _orderImportHistoryService.AddOrderImportHistoryLineItemAsync(new OrderImportHistoryLineItem
+                                {
+                                    OrderImportHistoryId = history.OrderImportHistoryId,
+                                    Supplier = importedPart.Supplier,
+                                    Cost = importedPart.Cost,
+                                    CustomerReference = importedPart.Reference,
+                                    Description = importedPart.Description,
+                                    Manufacturer = importedPart.Manufacturer,
+                                    ManufacturerPartNumber = importedPart.ManufacturerPartNumber,
+                                    PartNumber = part.PartNumber,
+                                    Quantity = importedPart.QuantityAvailable,
+                                    PartId = part.PartId,
+                                });
+                            }
 
-                        successPart.QuantityExisting = 0;
-                        successPart.QuantityAdded = commonPart.QuantityAvailable;
-                        successPart.IsImported = true;
-                        response.Parts.Add(successPart);
+                            var successPart = Mapper.Map<CommonPart, ImportPartResponse>(importedPart);
+                            successPart.PartType = partType?.Name ?? SystemDefaults.DefaultPartTypes.Other.ToString();
+
+                            successPart.QuantityExisting = 0;
+                            successPart.QuantityAdded = importedPart.QuantityAvailable;
+                            successPart.IsImported = true;
+                            response.Parts.Add(successPart);
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    var failedPart = Mapper.Map<CommonPart, ImportPartResponse>(commonPart);
+                    var failedPart = Mapper.Map<CommonPart, ImportPartResponse>(importedPart);
                     failedPart.IsImported = false;
                     failedPart.ErrorMessage = ex.GetBaseException().Message;
                     response.Parts.Add(failedPart);
@@ -762,6 +922,19 @@ namespace Binner.Web.Controllers
         }
 
         /// <summary>
+        /// Get list of categories (DigiKey only)
+        /// </summary>
+        /// <param name="request"></param>
+        /// <returns></returns>
+        [HttpGet("categories")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetGetCategories()
+        {
+            var categories = await _partService.GetCategoriesAsync();
+            return Ok(categories);
+        }
+
+        /// <summary>
         /// Check for duplicate part
         /// </summary>
         /// <param name="request"></param>
@@ -795,8 +968,10 @@ namespace Binner.Web.Controllers
         /// </summary>
         /// <param name="partType"></param>
         /// <returns></returns>
-        private async Task<PartType?> GetPartTypeAsync(string partType)
+        private async Task<PartType?> GetPartTypeAsync(string? partType)
         {
+            if (string.IsNullOrEmpty(partType)) return null;
+
             PartType? result = null;
             if (int.TryParse(partType, out int partTypeId))
             {
@@ -814,8 +989,21 @@ namespace Binner.Web.Controllers
             return result;
         }
 
-        private int GetMountingTypeId(string mountingType)
+        /// <summary>
+        /// Get an existing part type from default part types
+        /// </summary>
+        /// <param name="partType"></param>
+        /// <returns></returns>
+        private async Task<PartType?> GetPartTypeAsync(DefaultPartTypes partType)
         {
+            return await _partService.GetPartTypeAsync(partType.ToString());
+        }
+
+        private int GetMountingTypeId(string? mountingType)
+        {
+            if (string.IsNullOrEmpty(mountingType))
+                return (int)MountingType.None;
+
             if (int.TryParse(mountingType, out int mountingTypeId))
             {
                 // numeric format
@@ -828,7 +1016,7 @@ namespace Binner.Web.Controllers
                 if (Enum.IsDefined(typeof(MountingType), mountingType))
                     return (int)Enum.Parse<MountingType>(mountingType.Replace(" ", ""), true);
             }
-            return -1;
+            return (int)MountingType.None;
         }
     }
 }

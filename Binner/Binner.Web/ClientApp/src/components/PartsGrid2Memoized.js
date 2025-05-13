@@ -27,7 +27,23 @@ const AppMedia = createMedia({
 const mediaStyles = AppMedia.createMediaStyle();
 const { Media, MediaContextProvider } = AppMedia;
 
-export default function PartsGrid2Memoized(props) {
+export default function PartsGrid2Memoized({
+    loading = true,
+    columns = "partNumber,partId,quantity,value,lowStockThreshold,manufacturerPartNumber,description,partType,packageType,mountingType,location,binNumber,binNumber2,cost,digikeyPartNumber,mouserPartNumber,arrowPartNumber,tmePartNumber,datasheetUrl,print,delete,symbolName,footprintName,extensionValue1,extensionValue2",
+    defaultVisibleColumns = "partNumber,quantity,value,manufacturerPartNumber,description,partType,location,binNumber,binNumber2,cost,datasheetUrl,print,delete",
+    page = 1,
+    totalPages = 1,
+    totalRecords = 0,
+    selectedPart,
+    editable = true,
+    visitable = true,
+    visitUrl = '/inventory',
+    keyword = '',
+    by = [],
+    byValue = [],
+    parts = [],
+    ...rest
+  }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -51,33 +67,33 @@ export default function PartsGrid2Memoized(props) {
     return result;
   };
 
-  const [parts, setParts] = useState(props.parts);
-  const [page, setPage] = useState(1);
+  const [_parts, setParts] = useState(parts);
+  const [_page, setPage] = useState(page);
   const [pageSize, setPageSize] = useState(getViewPreference('pageSize') || 25);
-  const [totalPages, setTotalPages] = useState(props.totalPages);
-  const [isLoading, setIsLoading] = useState(props.loading);
-  const [selectedPart, setSelectedPart] = useState(props.selectedPart);
-  const [editable, setEditable] = useState(props.editable);
-  const [visitable, setVisitable] = useState(props.visitable);
-  const [columns, setColumns] = useState(props.columns);
-  const [columnsArray, setColumnsArray] = useState(props.columns.split(','));
+  const [_totalPages, setTotalPages] = useState(totalPages);
+  const [isLoading, setIsLoading] = useState(loading);
+  const [_selectedPart, setSelectedPart] = useState(selectedPart);
+  const [_editable, setEditable] = useState(editable);
+  const [_visitable, setVisitable] = useState(visitable);
+  const [_columns, setColumns] = useState(columns);
+  const [columnsArray, setColumnsArray] = useState(columns.split(','));
   const [confirmDeleteIsOpen, setConfirmDeleteIsOpen] = useState(false);
   const [confirmPartDeleteContent, setConfirmPartDeleteContent] = useState(null);
   const [modalHeader, setModalHeader] = useState("");
   const [modalContent, setModalContent] = useState("");
   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [partTypes, setPartTypes] = useState();
-  const [columnVisibility, setColumnVisibility] = useState(getViewPreference('columnVisibility') || createDefaultVisibleColumns(props.columns, props.defaultVisibleColumns));
-  const [columnsVisibleArray, setColumnsVisibleArray] = useState(props.defaultVisibleColumns.split(','));
+  const [columnVisibility, setColumnVisibility] = useState(getViewPreference('columnVisibility') || createDefaultVisibleColumns(columns, defaultVisibleColumns));
+  const [columnsVisibleArray, setColumnsVisibleArray] = useState(defaultVisibleColumns.split(','));
   const [columnOrder, setColumnOrder] = useState(getViewPreference('columnOrder') || []);
   const [sorting, setSorting] = useState([]);
-  const loadPage = props.loadPage;
-  const onPartClick = props.onPartClick;
   const itemsPerPageOptions = [
-    { key: 1, text: "25", value: 25 },
-    { key: 2, text: "50", value: 50 },
-    { key: 3, text: "100", value: 100 },
-    { key: 4, text: "200", value: 200 }
+    { key: 1, text: "10", value: 10 },
+    { key: 2, text: "25", value: 25 },
+    { key: 3, text: "50", value: 50 },
+    { key: 4, text: "100", value: 100 },
+    { key: 5, text: "200", value: 200 },
+    { key: 6, text: "500", value: 500 },
   ];
 
   const loadPartTypes = useCallback((parentPartType = "") => {
@@ -92,26 +108,26 @@ export default function PartsGrid2Memoized(props) {
   }, []);
 
   useEffect(() => {
-    if (props.onInit) props.onInit({ pageSize});
+    if (rest.onInit) rest.onInit({ pageSize});
     loadPartTypes();
   }, [loadPartTypes]);
 
   useEffect(() => {
-    setParts(props.parts);
-    setIsLoading(props.loading);
-    setColumns(props.columns);
-    setColumnsArray(props.columns.split(','));
-    setColumnsVisibleArray(props.defaultVisibleColumns.split(','));
-    setPage(props.page);
-    setSelectedPart(props.selectedPart);
-    setEditable(props.editable);
-    setVisitable(props.visitable);
-    setTotalPages(Math.ceil(props.totalPages));
-  }, [props]);
+    setParts(parts);
+    setIsLoading(loading);
+    setColumns(columns);
+    setColumnsArray(columns.split(','));
+    setColumnsVisibleArray(defaultVisibleColumns.split(','));
+    setPage(page);
+    setSelectedPart(selectedPart);
+    setEditable(editable);
+    setVisitable(visitable);
+    setTotalPages(totalPages);
+  }, [parts, loading, columns, defaultVisibleColumns, page, selectedPart, editable, visitable, totalPages]);
 
   const handlePageChange = (e, control) => {
     setPage(control.activePage);
-    loadPage(e, control.activePage);
+    if (rest.loadPage) rest.loadPage(e, control.activePage);
   };
 
   const handleVisitLink = (e, url) => {
@@ -129,14 +145,15 @@ export default function PartsGrid2Memoized(props) {
   const handleDeletePart = async (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
     await fetchApi(`/api/part`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ partId: selectedPart.partId })
+      body: JSON.stringify({ partId: _selectedPart.partId })
     });
-    const partsDeleted = _.without(parts, _.findWhere(parts, { partId: selectedPart.partId }));
+    const partsDeleted = _.without(_parts, _.findWhere(_parts, { partId: _selectedPart.partId }));
     setConfirmDeleteIsOpen(false);
     setParts(partsDeleted);
     setSelectedPart(null);
@@ -174,8 +191,9 @@ export default function PartsGrid2Memoized(props) {
 
   const handlePageSizeChange = (e, control) => {
     setPageSize(control.value);
+    setPage(1);
     setViewPreference('pageSize', control.value);
-    if (props.onPageSizeChange) props.onPageSizeChange(e, control.value);
+    if (rest.onPageSizeChange) rest.onPageSizeChange(e, control.value);
   };
 
   const getColumnSize = (columnName) => {
@@ -186,6 +204,8 @@ export default function PartsGrid2Memoized(props) {
         return 180;
       case "quantity":
         return 140;
+      case "value":
+        return 100;
       case "lowStockThreshold":
         return 220;
       case "manufacturerPartNumber":
@@ -218,8 +238,8 @@ export default function PartsGrid2Memoized(props) {
   };
 
   const indexOfBy = (filterBy) => {
-    for(let i = 0; i < props.by.length; i++) {
-      if (props.by[i] === filterBy) {
+    for(let i = 0; i < by.length; i++) {
+      if (by[i] === filterBy) {
         return i;
       }
     }
@@ -227,8 +247,8 @@ export default function PartsGrid2Memoized(props) {
   };
 
   const createFilterBy = (filterByToAdd, filterByValueToAdd) => {
-    const newFilterBy = [...props.by];
-    const newFilterByValue = [...props.byValue];
+    const newFilterBy = [...by];
+    const newFilterByValue = [...byValue];
     
     if (filterByValueToAdd?.length > 0 && !newFilterByValue.includes(filterByValueToAdd)) {
       newFilterBy.push(filterByToAdd);
@@ -242,7 +262,7 @@ export default function PartsGrid2Memoized(props) {
       e.preventDefault();
       e.stopPropagation();
       if (part[propertyName]) {
-        const url = `${props.visitUrl}?${createFilterBy(propertyName, part[propertyName])}&keyword=${props.keyword}&_=${Math.random()}`;
+        const url = `${visitUrl}?${createFilterBy(propertyName, part[propertyName])}&keyword=${keyword}&_=${Math.random()}`;
         navigate(url);
       }
     };
@@ -260,7 +280,7 @@ export default function PartsGrid2Memoized(props) {
     };
 
     const getColumnDefinition = (columnName, key) => {
-      const translatedColumnName = t(`comp.partsGrid.${columnName}`, `i18 ${columnName}`);
+      const translatedColumnName = t(`comp.partsGrid.${columnName}`, `${columnName}`);
   
       const def = {
         accessorKey: columnName,
@@ -283,9 +303,9 @@ export default function PartsGrid2Memoized(props) {
               <div onClick={e => handleSelfLink(e, row.original, columnName)}>
                 <div className="icon-container small">{getIconForPart(row.original)} 
                   <div>
-                    {props.by.includes(columnName) && props.byValue.includes(row.original[columnName])
+                    {by.includes(columnName) && byValue.includes(row.original[columnName])
                     ? <span>{row.original.partType}</span>
-                    :  <Link style={{minWidth: '25px'}} to={`${props.visitUrl}?${createFilterBy(columnName, row.original.partType)}&keyword=${props.keyword}`} onClick={e => handleSelfLink(e, row.original, columnName)}>
+                    :  <Link style={{minWidth: '25px'}} to={`${visitUrl}?${createFilterBy(columnName, row.original.partType)}&keyword=${keyword}`} onClick={e => handleSelfLink(e, row.original, columnName)}>
                         {row.original.partType}
                       </Link>
                     }
@@ -298,9 +318,9 @@ export default function PartsGrid2Memoized(props) {
         case 'location':
           return {...def, Cell: ({row}) => (
             <div onClick={e => handleSelfLink(e, row.original, columnName)}>
-              {props.by.includes(columnName) && props.byValue.includes(row.original[columnName])
+              {by.includes(columnName) && byValue.includes(row.original[columnName])
               ? <span className='truncate'>{row.original[columnName]}</span>
-              : <Link style={{minWidth: '25px'}} to={`${props.visitUrl}?${createFilterBy(columnName, row.original[columnName])}&keyword=${props.keyword}`} onClick={e => handleSelfLink(e, row.original, columnName)}>
+              : <Link style={{minWidth: '25px'}} to={`${visitUrl}?${createFilterBy(columnName, row.original[columnName])}&keyword=${keyword}`} onClick={e => handleSelfLink(e, row.original, columnName)}>
                   <span className='truncate'>{row.original[columnName]}</span>
                 </Link> 
               }
@@ -334,7 +354,7 @@ export default function PartsGrid2Memoized(props) {
       setColumnOrder(columnsArray)
     
     return headers;
-  }, [/*columns, */partTypes, columnsArray, columnsVisibleArray, columnOrder, navigate, t, onPartClick]);
+  }, [_parts, partTypes, columnsArray, columnsVisibleArray, columnOrder, navigate, t, rest.onPartClick]);
 
   const handleColumnVisibilityChange = (item) => {
     let newColumnVisibility = {...columnVisibility};
@@ -363,19 +383,19 @@ export default function PartsGrid2Memoized(props) {
         const sortBy = sortValue[0].id;
         const sortDirection = sortValue[0].desc ? 'Descending' : 'Ascending';
         newColumnSorting = sortValue;
-        if(props.onSortChange)
-          props.onSortChange(sortBy, sortDirection);
+        if(rest.onSortChange)
+          rest.onSortChange(sortBy, sortDirection);
         setSorting(newColumnSorting);
       } else {
         setSorting([]);
-        if(props.onSortChange)
-          props.onSortChange(null, null);
+        if(rest.onSortChange)
+          rest.onSortChange(null, null);
       }
     }
   };
 
   const handleRowClick = (row) => {
-    if (onPartClick) onPartClick(row, row.original);
+    if (rest.onPartClick) rest.onPartClick(row, row.original);
   };
 
   return (
@@ -383,9 +403,9 @@ export default function PartsGrid2Memoized(props) {
       <style>{mediaStyles}</style>
       <MediaContextProvider>
         <div className="header">
-          <Pagination activePage={page} totalPages={totalPages} firstItem={null} lastItem={null} onPageChange={handlePageChange} size="mini" />
+          <Pagination activePage={_page} totalPages={_totalPages} firstItem={null} lastItem={null} onPageChange={handlePageChange} size="mini" />
           <div>
-            <span>Total records: {props.totalRecords}</span>
+            <span>Total records: {totalRecords}</span>
           </div>
           <div style={{display: 'flex', alignItems: 'center'}}>
             <Dropdown selection options={itemsPerPageOptions} value={pageSize} className="labeled" onChange={handlePageSizeChange} style={{width: '75px', minWidth: '75px', marginRight: '10px'}} />
@@ -398,7 +418,7 @@ export default function PartsGrid2Memoized(props) {
         <div style={{marginTop: '5px'}}>
           <MaterialReactTable
             columns={tableColumns}
-            data={parts}
+            data={_parts}
             //enableRowSelection /** disabled until I can figure out how to pin it */
             enableGlobalFilter={false}
             enableFilters={false}
@@ -424,10 +444,10 @@ export default function PartsGrid2Memoized(props) {
               density: "compact", 
               columnPinning: { left: ['partNumber'], right: ['actions'] }
             }}
-            renderBottomToolbar={(<div className="footer"><Pagination activePage={page} totalPages={totalPages} firstItem={null} lastItem={null} onPageChange={handlePageChange} size="mini" /></div>)}
+            renderBottomToolbar={(<div className="footer"><Pagination activePage={_page} totalPages={_totalPages} firstItem={null} lastItem={null} onPageChange={handlePageChange} size="mini" /></div>)}
             muiTableBodyRowProps={({row}) => ({
               onClick: () => handleRowClick(row),
-              selected: selectedPart === row.original,
+              selected: _selectedPart === row.original,
               hover: false, // important for proper row highlighting on hover
               sx: {
                 cursor: 'pointer'
@@ -491,19 +511,4 @@ PartsGrid2Memoized.propTypes = {
   keyword: PropTypes.string,
   by: PropTypes.array,
   byValue: PropTypes.array
-};
-
-PartsGrid2Memoized.defaultProps = {
-  loading: true,
-  columns: "partNumber,partId,quantity,lowStockThreshold,manufacturerPartNumber,description,partType,packageType,mountingType,location,binNumber,binNumber2,cost,digikeyPartNumber,mouserPartNumber,arrowPartNumber,tmePartNumber,datasheetUrl,print,delete,symbolName,footprintName,extensionValue1,extensionValue2",
-  defaultVisibleColumns: "partNumber,quantity,manufacturerPartNumber,description,partType,location,binNumber,binNumber2,cost,datasheetUrl,print,delete",
-  page: 1,
-  totalPages: 1,
-  totalRecords: 0,
-  editable: true,
-  visitable: true,
-  visitUrl: '/inventory',
-  keyword: '',
-  by: [],
-  byValue: []
 };

@@ -28,5 +28,7 @@
         public bool IsPartLabelTemplate { get; set; }
 
         public LabelTemplate? LabelTemplate { get; set; }
+
+        public ICollection<CustomValue> CustomFields { get; set; } = new List<CustomValue>();
     }
 }

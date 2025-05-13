@@ -19,6 +19,88 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                 .HasDefaultSchema("dbo")
                 .HasAnnotation("ProductVersion", "8.0.4");
 
+            modelBuilder.Entity("Binner.Data.Model.CustomField", b =>
+                {
+                    b.Property<long>("CustomFieldId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CustomFieldTypeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("CustomFieldId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("CustomFields", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.CustomFieldValue", b =>
+                {
+                    b.Property<long>("CustomFieldValueId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CustomFieldId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CustomFieldTypeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("RecordId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("CustomFieldValueId");
+
+                    b.HasIndex("CustomFieldId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("CustomFieldValues", "dbo");
+                });
+
             modelBuilder.Entity("Binner.Data.Model.Label", b =>
                 {
                     b.Property<int>("LabelId")
@@ -138,6 +220,9 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.Property<string>("AccessToken")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ApiSettings")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
@@ -173,6 +258,8 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.HasKey("OAuthCredentialId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("Provider", "UserId", "OrganizationId");
 
                     b.ToTable("OAuthCredentials", "dbo");
                 });
@@ -233,6 +320,110 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("OAuthRequests", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistory", b =>
+                {
+                    b.Property<long>("OrderImportHistoryId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<string>("Invoice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Packlist")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SalesOrder")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Supplier")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("OrderImportHistoryId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("OrderImportHistories", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistoryLineItem", b =>
+                {
+                    b.Property<long>("OrderImportHistoryLineItemId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double>("Cost")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("CustomerReference")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Manufacturer")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ManufacturerPartNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("OrderImportHistoryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("PartId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PartNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Quantity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Supplier")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("OrderImportHistoryLineItemId");
+
+                    b.HasIndex("OrderImportHistoryId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("OrderImportHistoryLineItems", "dbo");
                 });
 
             modelBuilder.Entity("Binner.Data.Model.Organization", b =>
@@ -368,6 +559,9 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.Property<int?>("UserId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Value")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("PartId");
 
                     b.HasIndex("ProjectId");
@@ -397,6 +591,86 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.HasIndex("PartTypeId", "UserId");
 
                     b.ToTable("Parts", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.PartScanHistory", b =>
+                {
+                    b.Property<long>("PartScanHistoryId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("BarcodeType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CountryOfOrigin")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Crc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Invoice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LotCode")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ManufacturerPartNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Mid")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Packlist")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("PartId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RawScan")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SalesOrder")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ScannedLabelType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Supplier")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SupplierPartNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("PartScanHistoryId");
+
+                    b.HasIndex("PartId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PartScanHistories", "dbo");
                 });
 
             modelBuilder.Entity("Binner.Data.Model.PartSupplier", b =>
@@ -470,7 +744,13 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                         .HasColumnType("TEXT")
                         .HasDefaultValueSql("getutcdate()");
 
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Icon")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Keywords")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
@@ -481,6 +761,12 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
 
                     b.Property<long?>("ParentPartTypeId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("ReferenceDesignator")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SymbolId")
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("UserId")
                         .HasColumnType("INTEGER");
@@ -1310,6 +1596,9 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("TokenConfig")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("TokenTypeId")
                         .HasColumnType("INTEGER");
 
@@ -1321,6 +1610,34 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("UserTokens", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.CustomField", b =>
+                {
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("CustomFields")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.CustomFieldValue", b =>
+                {
+                    b.HasOne("Binner.Data.Model.CustomField", "CustomField")
+                        .WithMany("CustomFieldValues")
+                        .HasForeignKey("CustomFieldId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("CustomFieldValues")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CustomField");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Binner.Data.Model.Label", b =>
@@ -1354,6 +1671,34 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistory", b =>
+                {
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("OrderImportHistory")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistoryLineItem", b =>
+                {
+                    b.HasOne("Binner.Data.Model.OrderImportHistory", "OrderImportHistory")
+                        .WithMany("OrderImportHistoryLineItems")
+                        .HasForeignKey("OrderImportHistoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("OrderImportHistoryLineItems")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("OrderImportHistory");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Binner.Data.Model.Part", b =>
                 {
                     b.HasOne("Binner.Data.Model.PartType", "PartType")
@@ -1375,6 +1720,23 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.Navigation("PartType");
 
                     b.Navigation("Project");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.PartScanHistory", b =>
+                {
+                    b.HasOne("Binner.Data.Model.Part", "Part")
+                        .WithMany("PartScanHistories")
+                        .HasForeignKey("PartId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("PartScanHistories")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Part");
 
                     b.Navigation("User");
                 });
@@ -1628,13 +1990,25 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Binner.Data.Model.CustomField", b =>
+                {
+                    b.Navigation("CustomFieldValues");
+                });
+
             modelBuilder.Entity("Binner.Data.Model.LabelTemplate", b =>
                 {
                     b.Navigation("Labels");
                 });
 
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistory", b =>
+                {
+                    b.Navigation("OrderImportHistoryLineItems");
+                });
+
             modelBuilder.Entity("Binner.Data.Model.Part", b =>
                 {
+                    b.Navigation("PartScanHistories");
+
                     b.Navigation("PartSuppliers");
 
                     b.Navigation("ProjectPartAssignments");
@@ -1679,9 +2053,19 @@ namespace Binner.Data.Migrations.Sqlite.Migrations
 
             modelBuilder.Entity("Binner.Data.Model.User", b =>
                 {
+                    b.Navigation("CustomFieldValues");
+
+                    b.Navigation("CustomFields");
+
                     b.Navigation("OAuthCredentials");
 
                     b.Navigation("OAuthRequests");
+
+                    b.Navigation("OrderImportHistory");
+
+                    b.Navigation("OrderImportHistoryLineItems");
+
+                    b.Navigation("PartScanHistories");
 
                     b.Navigation("PartSuppliers");
 

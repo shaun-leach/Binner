@@ -4,6 +4,7 @@ import { useTranslation, Trans } from "react-i18next";
 import { Link } from "react-router-dom";
 import _ from "underscore";
 import { Label, Button, Image, Form, Table, Segment, Dimmer, Checkbox, Loader, Popup, Icon, Confirm } from "semantic-ui-react";
+import ProtectedInput from "../components/ProtectedInput";
 import { fetchApi } from "../common/fetchApi";
 import { FormError } from "../components/FormError";
 import { toast } from "react-toastify";
@@ -11,6 +12,10 @@ import { format, parseJSON } from "date-fns";
 import { formatCurrency, isNumeric } from "../common/Utils";
 import { BarcodeScannerInput } from "../components/BarcodeScannerInput";
 import sha256 from 'crypto-js/sha256';
+// overrides BarcodeScannerInput audio support
+const enableSound = true;
+const soundSuccess = new Audio('/audio/scan-success.mp3');
+const soundFailure = new Audio('/audio/scan-failure.mp3');
 
 export function OrderImport(props) {
   const { t } = useTranslation();
@@ -22,18 +27,21 @@ export function OrderImport(props) {
   const [error, setError] = useState(null);
   const [apiMessages, setApiMessages] = useState([]);
   const [message, setMessage] = useState(null);
-  const [isKeyboardListening, setIsKeyboardListening] = useState(true);
   const [enableArrowPrepareEmail, setEnableArrowPrepareEmail] = useState(false);
-  const [requestProductInfo, setRequestProductInfo] = useState(true);
+  const [requestProductInfo, setRequestProductInfo] = useState(false);
   const [confirmAuthIsOpen, setConfirmAuthIsOpen] = useState(false);
   const [authorizationApiName, setAuthorizationApiName] = useState('');
   const [authorizationUrl, setAuthorizationUrl] = useState(null);
+  const [confirmReImport, setConfirmReImport] = useState(false);
+  const [confirmReImportAction, setConfirmReImportAction] = useState(null);
 
   const [order, setOrder] = useState({
     orderId: "",
     supplier: "DigiKey",
     username: null,
-    password: null
+    password: null,
+    invoice: null,
+    packlist: null,
   });
   const [supplierOptions] = useState([
     {
@@ -57,6 +65,8 @@ export function OrderImport(props) {
   const handleBarcodeInput = (e, input) => {
     // ignore single keypresses
     let orderNumber = '';
+    let invoice = '';
+    let packlist = '';
     if (input.type === "datamatrix") {
       if (input.value.salesOrder) {
         orderNumber = input.value.salesOrder;
@@ -64,6 +74,10 @@ export function OrderImport(props) {
         toast.error(t('error.invalid2dBarcode', "Hmmm, I don't recognize that 2D barcode!"), { autoClose: 10000 });
         return;
       }
+      if (input.value.invoice)
+        invoice = input.value.invoice;
+      if (input.value.packlist)
+        packlist = input.value.packlist;
     }
 
     if (isNumeric(input.value)) {
@@ -74,18 +88,9 @@ export function OrderImport(props) {
       return;
     }
 
-    const newOrder = { ...order, orderId: orderNumber };
+    const newOrder = { ...order, orderId: orderNumber, invoice: invoice, packlist: packlist };
     setOrder({ ...newOrder });
-    toast.info(t('messasge.loadingOrder', "Loading order# {{order}}", { order: orderNumber }), { autoClose: 10000 });
-    getPartsToImport(e, newOrder);
-  };
-
-  const enableKeyboardListening = () => {
-    setIsKeyboardListening(true);
-  };
-
-  const disableKeyboardListening = () => {
-    setIsKeyboardListening(false);
+    getPartsToImport(e, newOrder, true, true);
   };
 
   const handleImportParts = async (e) => {
@@ -96,6 +101,8 @@ export function OrderImport(props) {
     const request = {
       orderId: order.orderId,
       supplier: order.supplier,
+      invoice: order.invoice,
+      packlist: order.packlist,
       username: order.username,
       password: order.password,
       parts: _.where(orderImportSearchResult.parts, { selected: true })
@@ -116,14 +123,74 @@ export function OrderImport(props) {
     });
   };
 
-  const getPartsToImport = async (e, order) => {
+  const validateExistingOrderImport = async (search) => {
+    OrderImport.validateExistingOrderImport?.abort();
+    OrderImport.validateExistingOrderImport = new AbortController();
+
+    // check if we have imported this order before
+    return await fetchApi(`/api/orderImportHistory?orderNumber=${encodeURIComponent(search.orderId.trim())}&supplier=${encodeURIComponent(search.supplier.trim()) }`, {
+      signal: OrderImport.validateExistingOrderImport.signal,
+      method: "GET"
+    }).then((response) => {
+      if (response.responseObject.status === 404) {
+        // no history record, proceed
+        return true;
+      } else if (response.responseObject.ok) {
+        // record exists, we have imported this order before
+        return response.data;
+      }
+      // error
+      return false;
+    }).catch((ex) => {
+      if (ex?.name === "AbortError") {
+        // Continuation logic has already been skipped, so return normally
+      } else {
+        // other error
+        const { data } = ex;
+        if (data.status === 404) {
+          // no history record, proceed
+          return true;
+        } else {
+          console.error('http error', ex);
+          toast.error(`Server returned ${data.status} error.`);
+        }
+      }
+      return false;
+    });
+  };
+
+  const getPartsToImport = async (e, order, validateExistingOrder = true, viaBarcode = false) => {
     e.preventDefault();
-    OrderImport.abortController.abort(); // Cancel the previous request
-    OrderImport.abortController = new AbortController();
-    setLoading(true);
+    OrderImport.getPartsToImport?.abort(); // Cancel the previous request
+    OrderImport.getPartsToImport = new AbortController();
     setError(null);
     setOrderImportSearchResult(null);
 
+    if (validateExistingOrder) {
+      const validateResult = await validateExistingOrderImport(order);
+      if (validateResult === true) {
+        // ================================
+        // no order import history, proceed
+        // ================================
+      } else if (validateResult === false) {
+        // error occurred
+        toast.error(`An error occurred while validating the order import.`);
+        if (enableSound && viaBarcode) soundFailure.play();
+        return;
+      } else {
+        // confirm do you want to import it again?
+        setConfirmReImportAction(() => async (confirmEvent) => await getPartsToImport(e, order, false, viaBarcode));
+        setConfirmReImport(true);
+        if (enableSound && viaBarcode) soundFailure.play();
+        return;
+      }
+    }
+
+    // barcode scan successful
+    if (enableSound && viaBarcode) soundSuccess.play();
+    toast.info(t('message.loadingOrder', "Loading order# {{order}}", { order: order.orderId }), { autoClose: 10000 });
+
+    setLoading(true);
     const request = {
       orderId: order.orderId,
       supplier: order.supplier,
@@ -140,7 +207,7 @@ export function OrderImport(props) {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(request),
-        signal: OrderImport.abortController.signal
+        signal: OrderImport.getPartsToImport.signal
       }).then((response) => {
         const { data } = response;
         toast.dismiss();
@@ -190,7 +257,7 @@ export function OrderImport(props) {
 
   const handleClear = (e) => {
     e.preventDefault();
-    setOrder({ orderId: "", supplier: order.supplier });
+    setOrder({ orderId: "", supplier: order.supplier, invoice: null, packlist: null });
     setOrderImportSearchResult(null);
     setImportResult(null);
   };
@@ -294,10 +361,33 @@ export function OrderImport(props) {
     window.location.href = authorizationUrl;
   };
 
+  const handleOrderIdClear = (e) => {
+    setOrder({...order, orderId: ''});
+  };
+
+  const handleCancelReImport = (e) => {
+    setConfirmReImportAction(null);
+    setConfirmReImport(false); // close confirm
+    toast.info(t('message.orderImportCancelled', 'Order import cancelled.'));
+  }
+
+  const handleConfirmReImport = async (e) => {
+    // re-run command by executing the action set
+    setConfirmReImport(false);  // close confirm
+    if (confirmReImportAction) await confirmReImportAction(e);
+    setConfirmReImportAction(null);
+  };
+
+  const handleViewPart = (e, part) => {
+    if (part.partId && part.manufacturerPartNumber) {
+      if (window?.open) window.open(`/inventory/${part.manufacturerPartNumber}:${part.partId}`, "_blank");
+    }
+  };
+
   const renderAllMatchingParts = (order) => {
     return (
       <div>
-        <Table compact celled selectable size="small" className="partstable">
+        <Table compact celled selectable size="small" className="partstable expandable-table">
           <Table.Header>
             <Table.Row>
               <Table.HeaderCell colSpan="11">
@@ -325,7 +415,7 @@ export function OrderImport(props) {
               </Table.HeaderCell>
             </Table.Row>
             {order.messages.length > 0 && <Table.Row>
-              <Table.Cell colSpan={10}>
+              <Table.Cell colSpan={11}>
                 <h5>{t('page.orderImport.apiMessages', "Api Messages")}</h5>
                 <ul style={{ marginBottom: '10px' }} className="errors">
                   {order.messages.map((messageItem, key) => (
@@ -336,6 +426,7 @@ export function OrderImport(props) {
             </Table.Row>}
             <Table.Row>
               <Table.HeaderCell>{t('label.importQuestion', "Import?")}</Table.HeaderCell>
+              <Table.HeaderCell>{t('label.exists', "Exists")}</Table.HeaderCell>
               <Table.HeaderCell>{t('label.part', "Part")}</Table.HeaderCell>
               <Table.HeaderCell>{t('label.partNumberShort', "Part#")}</Table.HeaderCell>
               <Table.HeaderCell>{t('label.manufacturer', "Manufacturer")}</Table.HeaderCell>
@@ -349,22 +440,33 @@ export function OrderImport(props) {
           </Table.Header>
           <Table.Body>
             {order.parts.map((p, index) => (
-              <Table.Row key={index}>
+              <Table.Row key={index} onClick={e => handleViewPart(e, p)}>
                 <Table.Cell>
                   <Checkbox toggle checked={p.selected} onChange={(e) => handleChecked(e, p)} data={p} />
                 </Table.Cell>
-                <Table.Cell style={{ maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.description}>
-                  {p.description}
+                <Table.Cell textAlign="center">
+                  {p.partId 
+                    ? <Popup content={<p>{t('page.orderImport.popup.partExists', "Part exists in your inventory.")}</p>} trigger={<Icon name="check circle" color="blue" size="large" />} /> 
+                    : <Popup content={<p>{t('page.orderImport.popup.newPart', "New part does not exist in your inventory.")}</p>} trigger={<Icon name="plus circle" color="green" size="large" />} />
+                  }
                 </Table.Cell>
-                <Table.Cell>{p.manufacturerPartNumber}</Table.Cell>
-                <Table.Cell style={{ maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.manufacturer}>
-                  {p.manufacturer}
+                <Table.Cell className="expandable-cell width-100">
+                  <Popup wide hoverable content={<p>{p.description}</p>} trigger={<span>{p.description}</span>} />
                 </Table.Cell>
-                <Table.Cell>{p.partType}</Table.Cell>
-                <Table.Cell>{p.supplierPartNumber}</Table.Cell>
-                <Table.Cell>{formatCurrency(p.cost, p.currency || "USD")} (<i>{p.currency || "USD"}</i>)</Table.Cell>
-                <Table.Cell>{p.quantityAvailable}</Table.Cell>
-                <Table.Cell>
+                <Table.Cell className="expandable-cell width-100">
+                  <Popup wide hoverable content={<p>{p.manufacturerPartNumber}{p.reference && <><br />{p.reference}</>}</p>} trigger={<div>
+                    {p.manufacturerPartNumber}
+                    {p.reference && <><br /><div className="part-reference expandable-cell width-100">{p.reference}</div></>}
+                  </div>} />
+                </Table.Cell>
+                <Table.Cell className="expandable-cell width-100">
+                  <Popup wide hoverable content={<p>{p.manufacturer}</p>} trigger={<span>{p.manufacturer}</span>} />
+                </Table.Cell>
+                <Table.Cell className="expandable-cell width-50" textAlign="center">{p.partType}</Table.Cell>
+                <Table.Cell className="expandable-cell width-150"><Popup wide hoverable content={p.supplierPartNumber} trigger={<span>{p.supplierPartNumber}</span>} /></Table.Cell>
+                <Table.Cell className="expandable-cell width-50">{formatCurrency(p.cost, p.currency || "USD")}<br/><i>{p.currency || "USD"}</i></Table.Cell>
+                <Table.Cell className="expandable-cell width-50">{p.quantityAvailable}</Table.Cell>
+                <Table.Cell className="expandable-cell width-50">
                   <Image src={p.imageUrl} size="mini"></Image>
                 </Table.Cell>
                 <Table.Cell>
@@ -403,22 +505,25 @@ export function OrderImport(props) {
           <Table.Body>
             {importResult.parts.map((p, index) => (
               <React.Fragment key={index}>
-                <Table.Row>
+                <Table.Row onClick={e => handleViewPart(e, p)}>
                   <Table.Cell>
                     <Icon name={p.isImported ? "check circle" : "times circle"} color={p.isImported ? "green" : "red"} />
                   </Table.Cell>
-                  <Table.Cell style={{ maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.description}>
+                  <Table.Cell className="expandable-cell width-100">
                     {p.description}
                   </Table.Cell>
-                  <Table.Cell>{p.manufacturerPartNumber}</Table.Cell>
-                  <Table.Cell style={{ maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.manufacturer}>
+                  <Table.Cell className="expandable-cell width-100">
+                    {p.manufacturerPartNumber}
+                    {p.reference && <><br /><p className="part-reference expandable-cell width-100">{p.reference}</p></>}
+                  </Table.Cell>
+                  <Table.Cell className="expandable-cell width-100">
                     {p.manufacturer}
                   </Table.Cell>
-                  <Table.Cell>{p.partType}</Table.Cell>
-                  <Table.Cell>{p.supplierPartNumber}</Table.Cell>
-                  <Table.Cell>{formatCurrency(p.cost, p.currency || "USD")}</Table.Cell>
-                  <Table.Cell>{p.quantityAvailable}</Table.Cell>
-                  <Table.Cell><Image src={p.imageUrl} size="mini"></Image></Table.Cell>
+                  <Table.Cell className="expandable-cell width-50" textAlign="center">{p.partType}</Table.Cell>
+                  <Table.Cell className="expandable-cell width-100">{p.supplierPartNumber}</Table.Cell>
+                  <Table.Cell className="expandable-cell width-50">{formatCurrency(p.cost, p.currency || "USD")}</Table.Cell>
+                  <Table.Cell className="expandable-cell width-50">{p.quantityAvailable}</Table.Cell>
+                  <Table.Cell className="expandable-cell width-50"><Image src={p.imageUrl} size="mini"></Image></Table.Cell>
                 </Table.Row>
                 <Table.Row style={{ backgroundColor: '#fafafa' }}>
                   <Table.Cell></Table.Cell>
@@ -451,7 +556,23 @@ export function OrderImport(props) {
         </p>
         }
       />
-      <BarcodeScannerInput onReceived={handleBarcodeInput} listening={isKeyboardListening} minInputLength={4} />
+      <Confirm
+              header={<div className="header"><Icon name="undo" color="grey" /> {t('confirm.importOrder', "Import Order")}</div>}
+              open={confirmReImport}
+              confirmButton={t('button.import', "Import")}
+              cancelButton={t('button.cancel', "Cancel")}
+              content={
+                <p style={{ padding: "20px", fontSize: '1.2em', textAlign: "center" }}>
+                  <span style={{ color: '#666' }}>{t('confirm.alreadyImportedOrder', "You have already imported this order.")}</span>
+                  <br />
+                  <br />
+                  {t('confirm.confirmReImportOrder', "Do you want to import this order again?")}
+                </p>
+              }
+              onCancel={handleCancelReImport}
+              onConfirm={handleConfirmReImport}
+            />
+      <BarcodeScannerInput onReceived={handleBarcodeInput} swallowKeyEvent={false} minInputLength={4} enableSound={false} />
       <h1>{t('page.orderImport.title', "Order Import")}</h1>
       <Form>
         <Form.Group>
@@ -473,15 +594,14 @@ export function OrderImport(props) {
               </div>
             }
             trigger={
-              <Form.Input
+              <ProtectedInput
                 label={orderLabel}
                 placeholder="1023840"
                 icon="search"
                 focus
                 value={order.orderId}
                 onChange={handleChange}
-                onFocus={disableKeyboardListening}
-                onBlur={enableKeyboardListening}
+                onClear={handleOrderIdClear}
                 name="orderId"
               />
             }
@@ -490,27 +610,23 @@ export function OrderImport(props) {
             <>
               <Popup
                 content={<p>Enter your {order.supplier} account username</p>}
-                trigger={<Form.Input
+                trigger={<ProtectedInput
                   label="Username/login"
                   placeholder="johndoe@example.com"
                   icon="user"
                   value={order.username || ''}
                   onChange={handleChange}
-                  onFocus={disableKeyboardListening}
-                  onBlur={enableKeyboardListening}
                   name="username"
                 />}
               />
               <Popup
                 content={<p>Enter your {order.supplier} account password</p>}
-                trigger={<Form.Input
+                trigger={<ProtectedInput
                   type="password"
                   label="Password"
                   icon="key"
                   value={order.password || ''}
                   onChange={handleChange}
-                  onFocus={disableKeyboardListening}
-                  onBlur={enableKeyboardListening}
                   name="password"
                 />}
               />
@@ -523,8 +639,8 @@ export function OrderImport(props) {
             wide
             position="top left"
             positionFixed
-            content={<p>Enable to fetch all product information available for each item in the order.</p>}
-            trigger={<Checkbox toggle checked={requestProductInfo} name="requestProductInfo" onChange={handleToggleRequestProductInfo} label={t('page.orderImport.requestAllProductInformation', 'Request all product information')} style={{ fontSize: '0.8em' }} />}
+            content={<p>Enable to fetch all product information available for each item in the order. This will be much slower as each part requires an api request.</p>}
+            trigger={<Checkbox toggle checked={requestProductInfo} name="requestProductInfo" onChange={handleToggleRequestProductInfo} label={t('page.orderImport.requestAllProductInformation', 'Request all product information (slower)')} style={{ fontSize: '0.8em' }} />}
           />
 
         </div>

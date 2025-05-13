@@ -1,4 +1,5 @@
 ﻿using Binner.Global.Common;
+using Binner.Model;
 using Binner.Model.Authentication;
 using Binner.Model.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -16,7 +17,7 @@ namespace Binner.Common.Services.Authentication
     /// </summary>
     public class JwtService
     {
-        private const string AppSettingsFilename = "appsettings.json";
+        private static readonly string _appSettingsFilename = EnvironmentVarConstants.GetEnvOrDefault(EnvironmentVarConstants.Config, AppConstants.AppSettings);
 
         private readonly WebHostServiceConfiguration _configuration;
         private readonly ISettingsService _settingsService;
@@ -73,7 +74,7 @@ namespace Binner.Common.Services.Authentication
         /// Generate a token that can be used to serve secure images
         /// </summary>
         /// <returns></returns>
-        public string? GenerateImagesToken() => ConfirmationTokenGenerator.NewToken();
+        public string? GenerateImagesToken() => TokenGenerator.NewToken();
 
         /// <summary>
         /// Get the security key
@@ -146,10 +147,10 @@ namespace Binner.Common.Services.Authentication
             var signingKey = _configuration.Authentication.JwtSecretKey;
             if (string.IsNullOrEmpty(signingKey))
             {
-                signingKey = ConfirmationTokenGenerator.NewSecurityToken(40);
+                signingKey = TokenGenerator.NewSecurityToken(40);
                 _configuration.Authentication.JwtSecretKey = signingKey;
                 // save to appsettings
-                _settingsService.SaveSettingsAs(_configuration, nameof(WebHostServiceConfiguration), AppSettingsFilename, true);
+                _settingsService.SaveSettingsAsAsync(_configuration, nameof(WebHostServiceConfiguration), _appSettingsFilename, true);
             }
 
             return GetSecurityKey(signingKey);

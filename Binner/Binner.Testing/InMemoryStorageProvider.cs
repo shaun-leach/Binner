@@ -1,13 +1,14 @@
 ﻿using Binner.Global.Common;
 using Binner.Model;
+using Binner.Model.Integrations.DigiKey;
 using Binner.Model.Responses;
-using Binner.Model.Swarm;
 using System.Linq.Expressions;
 
 namespace Binner.Testing
 {
     public class InMemoryStorageProvider : IStorageProvider
     {
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
         private readonly Dictionary<long, Part> _parts = new();
         private readonly Dictionary<long, Project> _projects = new();
         private readonly Dictionary<long, ProjectPartAssignment> _projectPartAssignments = new();
@@ -18,19 +19,65 @@ namespace Binner.Testing
         private readonly Dictionary<long, PcbStoredFileAssignment> _pcbStoredFileAssignments = new();
         private readonly Dictionary<long, PartSupplier> _partSuppliers = new();
         private readonly Dictionary<long, User> _users = new();
+        private readonly Dictionary<long, PartScanHistory> _partScanHistories = new();
+        private readonly Dictionary<long, OrderImportHistory> _orderImportHistories = new();
+        private readonly Dictionary<long, OrderImportHistoryLineItem> _orderImportHistoryLineItems = new();
 
         public InMemoryStorageProvider(bool createEmpty = false)
         {
             if (!createEmpty)
             {
-                _parts.Add(1, new Part { PartNumber = "LM358", PartId = 1 });
+                _parts.Add(1, new Part { 
+                    PartNumber = "LM358", 
+                    PartId = 1,
+                    PartTypeId = 1,
+                    Quantity = 5,
+                    LowStockThreshold = 10,
+                    ProductUrl = "https://example.com/LM358",
+                    DatasheetUrl = "https://example.com/LM358/datasheet.pdf",
+                    ImageUrl = "https://example.com/LM358/image.png",
+                    DigiKeyPartNumber = "LM358-ND",
+                    ArrowPartNumber = "AR-LM358",
+                    MouserPartNumber = "MO-LM358",
+                    Location = "Vancouver",
+                    BinNumber = "1",
+                    BinNumber2 = "1",
+                    Cost = 1.39,
+                    Currency = "CAD",
+                    Description = "OP AMP",
+                    Keywords = new List<string> { "ic", "op amp" },
+                    Manufacturer = "Texas Instruments",
+                    ManufacturerPartNumber = "LM358-TI",
+                    MountingTypeId = (int)MountingTypes.SurfaceMount,
+                    PackageType = "DIP8",
+                    UserId = 1,
+                });
                 _projects.Add(1, new Project { Name = "Test Project", ProjectId = 1 });
             }
             _partTypes.Add(1, new PartType { Name = "IC", PartTypeId = 1 });
             _partTypes.Add(2, new PartType { Name = "Resistor", PartTypeId = 2 });
             _partTypes.Add(3, new PartType { Name = "Capacitor", PartTypeId = 3 });
             _partTypes.Add(4, new PartType { Name = "Inductor", PartTypeId = 4 });
+
+            if (_parts.Any())
+            {
+                _partSuppliers.Add(1, new PartSupplier
+                {
+                    PartSupplierId = 1,
+                    Name = "DigiKey",
+                    PartId = 1,
+                    Part = _parts.First().Value,
+                    Cost = 1.39,
+                    QuantityAvailable = 1000,
+                    ProductUrl = "https://example.com/LM358",
+                    ImageUrl = "https://example.com/LM358/image.png",
+                    SupplierPartNumber = "LM358-ND",
+                    MinimumOrderQuantity = 1,
+                    UserId = 1,
+                });
+            }
         }
+
 
         public async Task<Part> AddPartAsync(Part part, IUserContext? userContext)
         {
@@ -68,7 +115,7 @@ namespace Binner.Testing
             return assignment;
         }
 
-        public async Task<Project> AddProjectAsync(Project project, IUserContext? userContext)
+        public async Task<Project?> AddProjectAsync(Project project, IUserContext? userContext)
         {
             project.UserId = userContext?.UserId;
             var id = _projects.OrderByDescending(x => x.Key).Select(x => x.Key).FirstOrDefault() + 1;
@@ -201,6 +248,16 @@ namespace Binner.Testing
             return _parts.Where(x => x.Value.PartNumber == partNumber).Select(x => x.Value).FirstOrDefault();
         }
 
+        public async Task<PartType?> GetPartTypeAsync(string name, IUserContext? userContext)
+        {
+            return _partTypes.Where(x => x.Value?.Name?.Equals(name, StringComparison.InvariantCultureIgnoreCase) == true).Select(x => x.Value).FirstOrDefault();
+        }
+
+        public async Task<ICollection<Part>> GetPartsByPartTypeAsync(PartType partType, IUserContext? userContext)
+        {
+            return _parts.Where(x => x.Value.PartTypeId == partType.PartTypeId).Select(x => x.Value).ToList();
+        }
+
         public async Task<PaginatedResponse<Part>> GetPartsAsync(PaginatedRequest request, IUserContext? userContext)
         {
             //return _parts.Select(x => x.Value).ToList();
@@ -222,9 +279,9 @@ namespace Binner.Testing
             throw new NotImplementedException();
         }
 
-        public Task<ICollection<PartSupplier>> GetPartSuppliersAsync(long partId, IUserContext? userContext)
+        public async Task<ICollection<PartSupplier>> GetPartSuppliersAsync(long partId, IUserContext? userContext)
         {
-            throw new NotImplementedException();
+            return _partSuppliers.Where(x => x.Key == partId).Select(x => x.Value).ToList();
         }
 
         public Task<decimal> GetPartsValueAsync(IUserContext? userContext)
@@ -357,7 +414,7 @@ namespace Binner.Testing
             throw new NotImplementedException();
         }
 
-        public Task<OAuthCredential> SaveOAuthCredentialAsync(OAuthCredential credential, IUserContext? userContext)
+        public Task<OAuthCredential?> SaveOAuthCredentialAsync(OAuthCredential credential, IUserContext? userContext)
         {
             throw new NotImplementedException();
         }
@@ -372,17 +429,17 @@ namespace Binner.Testing
             throw new NotImplementedException();
         }
 
-        public Task<Part> UpdatePartAsync(Part part, IUserContext? userContext)
+        public Task<Part?> UpdatePartAsync(Part part, IUserContext? userContext)
         {
             throw new NotImplementedException();
         }
 
-        public Task<PartSupplier> UpdatePartSupplierAsync(PartSupplier partSupplier, IUserContext? userContext)
+        public Task<PartSupplier?> UpdatePartSupplierAsync(PartSupplier partSupplier, IUserContext? userContext)
         {
             throw new NotImplementedException();
         }
 
-        public Task<PartType> UpdatePartTypeAsync(PartType partType, IUserContext? userContext)
+        public Task<PartType?> UpdatePartTypeAsync(PartType partType, IUserContext? userContext)
         {
             throw new NotImplementedException();
         }
@@ -397,17 +454,17 @@ namespace Binner.Testing
             throw new NotImplementedException();
         }
 
-        public Task<Project> UpdateProjectAsync(Project project, IUserContext? userContext)
+        public Task<Project?> UpdateProjectAsync(Project project, IUserContext? userContext)
         {
             throw new NotImplementedException();
         }
 
-        public Task<ProjectPartAssignment> UpdateProjectPartAssignmentAsync(ProjectPartAssignment assignment, IUserContext? userContext)
+        public Task<ProjectPartAssignment?> UpdateProjectPartAssignmentAsync(ProjectPartAssignment assignment, IUserContext? userContext)
         {
             throw new NotImplementedException();
         }
 
-        public Task<ProjectPcbAssignment> UpdateProjectPcbAssignmentAsync(ProjectPcbAssignment assignment, IUserContext? userContext)
+        public Task<ProjectPcbAssignment?> UpdateProjectPcbAssignmentAsync(ProjectPcbAssignment assignment, IUserContext? userContext)
         {
             throw new NotImplementedException();
         }
@@ -415,6 +472,81 @@ namespace Binner.Testing
         public Task<StoredFile> UpdateStoredFileAsync(StoredFile storedFile, IUserContext? userContext)
         {
             throw new NotImplementedException();
+        }
+
+        public async Task<PartScanHistory?> GetPartScanHistoryAsync(PartScanHistory partScanHistory, IUserContext? userContext)
+        {
+            return _partScanHistories.Where(x => x.Value.PartScanHistoryId == partScanHistory.PartScanHistoryId).Select(x => x.Value).FirstOrDefault();
+        }
+
+        public async Task<PartScanHistory?> GetPartScanHistoryAsync(string rawScan, IUserContext? userContext)
+        {
+            return _partScanHistories.Where(x => x.Value.RawScan == rawScan).Select(x => x.Value).FirstOrDefault();
+        }
+
+        public async Task<PartScanHistory?> GetPartScanHistoryAsync(int rawScanCrc, IUserContext? userContext)
+        {
+            return _partScanHistories.Where(x => x.Value.Crc == rawScanCrc).Select(x => x.Value).FirstOrDefault();
+        }
+
+        public async Task<PartScanHistory?> GetPartScanHistoryAsync(long partScanHistoryId, IUserContext? userContext)
+        {
+            return _partScanHistories.Where(x => x.Value.PartScanHistoryId == partScanHistoryId).Select(x => x.Value).FirstOrDefault();
+        }
+
+        public Task<PartScanHistory> AddPartScanHistoryAsync(PartScanHistory partScanHistory, IUserContext? userContext)
+        {
+            return Task.FromResult(partScanHistory);
+        }
+
+        public Task<PartScanHistory?> UpdatePartScanHistoryAsync(PartScanHistory partScanHistory, IUserContext? userContext)
+        {
+            return Task.FromResult((PartScanHistory?)partScanHistory);
+        }
+
+        public Task<bool> DeletePartScanHistoryAsync(PartScanHistory partScanHistory, IUserContext? userContext)
+        {
+            return Task.FromResult(true);
+        }
+
+        public async Task<OrderImportHistory?> GetOrderImportHistoryAsync(OrderImportHistory orderImportHistory, bool includeChildren, IUserContext? userContext)
+        {
+            return _orderImportHistories.Where(x => x.Value.OrderImportHistoryId == orderImportHistory.OrderImportHistoryId).Select(x => x.Value).FirstOrDefault();
+        }
+
+        public async Task<OrderImportHistory?> GetOrderImportHistoryAsync(long orderImportHistoryId, bool includeChildren, IUserContext? userContext)
+        {
+            return _orderImportHistories.Where(x => x.Value.OrderImportHistoryId == orderImportHistoryId).Select(x => x.Value).FirstOrDefault();
+        }
+
+        public async Task<OrderImportHistory?> GetOrderImportHistoryAsync(string orderNumber, string supplier, bool includeChildren, IUserContext? userContext)
+        {
+            return _orderImportHistories.Where(x => x.Value.SalesOrder == orderNumber && x.Value.Supplier == supplier).Select(x => x.Value).FirstOrDefault();
+        }
+
+        public Task<OrderImportHistory> AddOrderImportHistoryAsync(OrderImportHistory partScanHistory, IUserContext? userContext)
+        {
+            return Task.FromResult(partScanHistory);
+        }
+
+        public Task<OrderImportHistoryLineItem> AddOrderImportHistoryLineItemAsync(OrderImportHistoryLineItem orderImportHistoryLineItem, IUserContext? userContext)
+        {
+            return Task.FromResult(orderImportHistoryLineItem);
+        }
+
+        public Task<OrderImportHistory?> UpdateOrderImportHistoryAsync(OrderImportHistory orderImportHistory, IUserContext? userContext)
+        {
+            return Task.FromResult((OrderImportHistory?)orderImportHistory);
+        }
+
+        public Task<bool> DeleteOrderImportHistoryAsync(OrderImportHistory orderImportHistory, IUserContext? userContext)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<IDictionary<string, long>> GetPartIdsFromManufacturerPartNumbersAsync(ICollection<string> partNumbers, IUserContext? userContext)
+        {
+            return Task.FromResult((IDictionary<string, long>)new Dictionary<string, long>());
         }
 
         public void Dispose()
@@ -429,6 +561,32 @@ namespace Binner.Testing
             _pcbStoredFileAssignments.Clear();
             _partSuppliers.Clear();
             _users.Clear();
+            _partScanHistories.Clear();
+            _orderImportHistories.Clear();
+            _orderImportHistoryLineItems.Clear();
         }
+
+        public async Task<ICollection<PartType>> GetPartTypesAsync(bool filterEmpty, IUserContext? userContext)
+        {
+            var partTypes = await GetPartTypesAsync(userContext);
+            return partTypes;
+        }
+
+        public async Task<ICollection<CustomValue>> GetCustomFieldsAsync(CustomFieldTypes customFieldType, long recordId, IUserContext? userContext)
+        {
+            return new List<CustomValue>();
+        }
+
+        public async Task<ICollection<CustomField>> GetCustomFieldsAsync(IUserContext? userContext)
+        {
+            return new List<CustomField>();
+        }
+
+        public async Task<ICollection<CustomField>> SaveCustomFieldsAsync(ICollection<CustomField> customFields, IUserContext? userContext)
+        {
+            return new List<CustomField>();
+        }
+
+#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
     }
 }

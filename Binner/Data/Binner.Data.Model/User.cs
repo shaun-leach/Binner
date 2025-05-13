@@ -121,6 +121,10 @@ namespace Binner.Data.Model
         /// </summary>
         public string? LocaleCurrency { get; set; }
 
+        public ICollection<CustomField>? CustomFields { get; set; }
+        
+        public ICollection<CustomFieldValue>? CustomFieldValues { get; set; }
+
         public ICollection<UserToken>? UserTokens { get; set; }
 
         public ICollection<UserLoginHistory>? UserLoginHistory { get; set; }
@@ -144,6 +148,12 @@ namespace Binner.Data.Model
         public ICollection<OAuthCredential>? OAuthCredentials { get; set; }
 
         public ICollection<OAuthRequest>? OAuthRequests { get; set; }
+
+        public ICollection<OrderImportHistory>? OrderImportHistory { get; set; }
+
+        public ICollection<OrderImportHistoryLineItem>? OrderImportHistoryLineItems { get; set; }
+
+        public ICollection<PartScanHistory>? PartScanHistories { get; set; }
 
         public ICollection<PartSupplier>? PartSuppliers { get; set; }
 

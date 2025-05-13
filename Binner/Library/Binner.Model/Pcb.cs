@@ -40,6 +40,8 @@
         /// </summary>
         public double Cost { get; set; }
 
+        public ICollection<CustomValue> CustomFields { get; set; } = new List<CustomValue>();
+
         /// <summary>
         /// Creation date
         /// </summary>

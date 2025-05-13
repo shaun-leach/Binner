@@ -22,14 +22,14 @@ namespace Binner.Common.Services
     public class AuthenticationService : IAuthenticationService
     {
         private readonly IStorageProvider _storageProvider;
-        private readonly RequestContextAccessor _requestContext;
+        private readonly IRequestContextAccessor _requestContext;
         private readonly IDbContextFactory<BinnerContext> _contextFactory;
         private readonly WebHostServiceConfiguration _configuration;
         private readonly JwtService _jwt;
         private readonly HttpClientFactory _httpClientFactory;
         private readonly ILogger<AuthenticationService> _logger;
 
-        public AuthenticationService(ILogger<AuthenticationService> logger, IStorageProvider storageProvider, IDbContextFactory<BinnerContext> contextFactory, RequestContextAccessor requestContextAccessor, JwtService jwt, WebHostServiceConfiguration configuration, HttpClientFactory httpClientFactory)
+        public AuthenticationService(ILogger<AuthenticationService> logger, IStorageProvider storageProvider, IDbContextFactory<BinnerContext> contextFactory, IRequestContextAccessor requestContextAccessor, JwtService jwt, WebHostServiceConfiguration configuration, HttpClientFactory httpClientFactory)
         {
             _logger = logger;
             _storageProvider = storageProvider;
@@ -80,6 +80,7 @@ namespace Binner.Common.Services
                             Message = authenticationResponse.Message,
                             Ip = _requestContext.GetIp(),
                             User = user,
+                            OrganizationId = user?.OrganizationId
                         });
                         await context.SaveChangesAsync();
                         await transaction.CommitAsync();
@@ -282,7 +283,7 @@ namespace Binner.Common.Services
                     OrganizationId = 1,
                     Name = request.Name,
                     EmailAddress = request.Email,
-                    EmailConfirmationToken = ConfirmationTokenGenerator.NewToken(),
+                    EmailConfirmationToken = TokenGenerator.NewToken(),
                     IsEmailConfirmed = false,
                     DateEmailConfirmedUtc = null,
                     IsEmailSubscribed = true,
@@ -378,7 +379,7 @@ namespace Binner.Common.Services
                 {
                     TokenTypeId = TokenTypes.PasswordResetToken,
                     DateExpiredUtc = DateTime.UtcNow.AddDays(1),
-                    Token = ConfirmationTokenGenerator.NewToken(),
+                    Token = TokenGenerator.NewToken(),
                     User = user,
                     Ip = _requestContext.GetIp()
                 };
@@ -498,7 +499,7 @@ namespace Binner.Common.Services
             _requestContext.SetUser(claimsPrincipal);
             return claimsPrincipal;
         }
-        
+
         private async Task<AuthenticatedTokens> GetAuthenticatedTokensAsync(BinnerContext context, UserContext userContext)
         {
             if (context == null) throw new ArgumentNullException(nameof(context));

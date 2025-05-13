@@ -9,7 +9,7 @@ import "./ProtectedInput.css";
  * A form text input that is protected against barcode input.
  * When barcode input is received, the control is masked out and content is replaced and cleared after a successful barcode scan.
  */
-export default function ProtectedInput(props) {
+export default function ProtectedInput({ clearOnScan = true, allowEnter = false, hideIcon = false, hideClearIcon = false, onClear, onIconClick, onBarcodeReadStarted, onBarcodeReadCancelled, onBarcodeReadReceived, ...rest }) {
 	const IsDebug = false;
 	const ScanSuccessClassRemovalMs = 2100;
 	const DefaultProtectedClassName = "protectedInput";
@@ -18,42 +18,46 @@ export default function ProtectedInput(props) {
 	const bufferedValue = useRef(null);
 	const inputRef = useRef(null);
 	const inputReceiving = useRef(false);
-	const id = useMemo(() => props.id || uuidv4(), [props.id]);
+	const id = useMemo(() => rest.id || uuidv4(), [rest.id]);
 
 	const barcodeReadStarted = (e) => {
-		window.requestAnimationFrame(() => { inputReceiving.current = true; });
-		if (IsDebug) console.log(`PI: sending read started id: ${id} dest: ${e.detail.destination.id}`);
+    rest.onChange(e, { value: '' });
+    inputReceiving.current = true;
+		//window.requestAnimationFrame(() => { inputReceiving.current = true; });
+		if (IsDebug) console.debug(`PI: sending read started id: ${id} dest: ${e.detail.destination.id}`);
 		if (e.detail.destination.id !== id) return;
-		if (IsDebug) console.log('PI: barcodeReadStarted', e, e.detail.destination.id, id);
+		if (IsDebug) console.debug('PI: barcodeReadStarted', e, e.detail.destination.id, id);
 		inputRef.current.classList.add(DefaultIsScanningClassName);
-		if (props.onBarcodeReadStarted) props.onBarcodeReadStarted(e);
+		if (onBarcodeReadStarted) onBarcodeReadStarted(e);
 	};
 
 	const barcodeReadCancelled = (e) => {
-		window.requestAnimationFrame(() => { inputReceiving.current = false; });
-		if (IsDebug) console.log(`PI: sending read cancelled id: ${id} dest: ${e.detail.destination.id}`);
+    inputReceiving.current = false;
+    //window.requestAnimationFrame(() => { inputReceiving.current = false; });
+		if (IsDebug) console.debug(`PI: sending read cancelled id: ${id} dest: ${e.detail.destination.id}`);
 		if (e.detail.destination.id !== id) return;
-		if (IsDebug) console.log('PI: barcodeReadCancelled', e, e.detail.destination.id, id);
+		if (IsDebug) console.debug('PI: barcodeReadCancelled', e, e.detail.destination.id, id);
 		inputRef.current.classList.remove(DefaultIsScanningClassName);
-		if (props.onBarcodeReadCancelled) props.onBarcodeReadCancelled(e);
+		if (onBarcodeReadCancelled) onBarcodeReadCancelled(e);
 	};
 
 	const barcodeReadReceived = (e) => {
-		window.requestAnimationFrame(() => { inputReceiving.current = false; });
-		if (IsDebug) console.log(`PI: sending read complete id: ${id} dest: ${e.detail.destination?.id}`);
+    inputReceiving.current = false;
+    //window.requestAnimationFrame(() => { inputReceiving.current = false; });
+		if (IsDebug) console.debug(`PI: sending read complete id: ${id} dest: ${e.detail.destination?.id}`);
 		if (e.detail.destination && e.detail.destination.id !== id) return;
-		if (IsDebug) console.log('PI: barcodeReadReceived', e, e.detail.destination?.id, id, props.clearOnScan);
+		if (IsDebug) console.debug('PI: barcodeReadReceived', e, e.detail.destination?.id, id, clearOnScan);
 		// replace the text input control to the original before the barcode scan took place
 		bufferedValue.current = bufferedValue.current?.replaceAll(e.detail.text, "");
 		inputRef.current.classList.remove(DefaultIsScanningClassName);
 		inputRef.current.classList.add(DefaultScanningCompleteClassName);
 		// remove class in a bit to allow animations to finish
 		setTimeout(() => { inputRef.current.classList.remove(DefaultScanningCompleteClassName); }, ScanSuccessClassRemovalMs);
-		if (props.clearOnScan) {
+		if (clearOnScan) {
 			// clear/restore the text input
-			props.onChange(e, {...props, value: bufferedValue.current });
+			rest.onChange(e, {...rest, clearOnScan, allowEnter, hideIcon, hideClearIcon, value: bufferedValue.current });
 		}
-		if (props.onBarcodeReadReceived) props.onBarcodeReadReceived(e);
+		if (onBarcodeReadReceived) onBarcodeReadReceived(e);
 	};
 
 	useEffect(() => {
@@ -72,16 +76,26 @@ export default function ProtectedInput(props) {
 		bufferedValue.current = control.value;
 		// pass input to child control only when not receiving barcode data
 		if (!inputReceiving.current)
-			return props.onChange(e, control);
+			return rest.onChange(e, control);
+    else if (inputRef.current?.value?.length > 0) {
+      // reset the input control value while receiving barcode data
+      return rest.onChange(e, { value: ''});
+    }
 	};
 
 	// intercept the onChange & keydown events
-	const privateProps = {...props, 
+	const privateProps = {...rest, 
 		onChange: (e, control) => internalOnChange(e, control), 
 		onKeyDown: (e) => {	
-			// block enter key completely if configured to do so
-			const isCr = e.keyCode === 13;
-			if (isCr && !props.allowEnter) {
+      if (inputReceiving.current) {
+        // dropping keydown, we are receiving a barcode
+        e.preventDefault();
+        return;
+      }
+      //console.log('kd', e.keyCode, inputReceiving.current);
+      // block enter key completely if configured to do so
+      const isCr = e.keyCode === 13;
+			if (isCr && !allowEnter) {
 				// prevent character
 				e.preventDefault();
 			}
@@ -89,14 +103,21 @@ export default function ProtectedInput(props) {
 	};
 
 	const handleClear = (e) => {
-		return props.onChange(e, { ...props, value: '' });
+    if (onClear) onClear(e);
+		if (!e.defaultPrevented) {
+      rest.onChange(e, { ...rest, clearOnScan, allowEnter, hideIcon, hideClearIcon, value: '' });
+    }
 	};
 
+  const handleIconClick = (e, control) => {
+    if (onIconClick) onIconClick(e, { ...rest });
+  };
+
 	// propsToExclude: exclude any props that only belong to our control
-	const{ allowEnter, hideIcon, hideClearIcon, clearOnScan, onBarcodeReadStarted, onBarcodeReadCancelled, onBarcodeReadReceived, ...propsToReturn } = privateProps;
+	const{ ...propsToReturn } = privateProps;
 	
 	const getClearIconPosition = () => {
-		if (props.icon) {
+		if (rest.icon) {
 			if (hideIcon)
 				return '35px';
 			else
@@ -119,9 +140,9 @@ export default function ProtectedInput(props) {
 		propsToReturn.icon = true;
 
 	// if the control has children, attach our refs and classes
-	if (props.children) {
+	if (rest.children) {
 		// custom children are provided, modify the text input
-		const children = props.children.map((child, key) => {
+		const children = rest.children.map((child, key) => {
 			if (React.isValidElement(child)) {
 				const childProps = {...child.props };
 				if (child.type === "input" && (childProps.type === undefined || childProps.type === "" || childProps.type === "text")) {
@@ -135,18 +156,19 @@ export default function ProtectedInput(props) {
 				}
 			}
 		});
+
 		return <Form.Input { ...propsToReturn } id={id}>
 			{children}
-			{!hideClearIcon && <Icon name="times" circular link size="small" className="clearIcon" onClick={handleClear} style={{right: propsToReturn.iconPosition !== "left" && getClearIconPosition(), left: 'unset', opacity: props.value?.length > 0 ? '0.5' : '0', visibility: props.value?.length > 0 ? 'visible' : 'hidden'}} />}
+			{!hideClearIcon && <Icon name="times" circular link size="small" className="clearIcon" onClick={handleClear} style={{right: propsToReturn.iconPosition !== "left" && getClearIconPosition(), left: 'unset', opacity: rest.value?.length > 0 ? '0.5' : '0', visibility: rest.value?.length > 0 ? 'visible' : 'hidden'}} />}
 			{!hideIcon && <Icon name="barcode" style={{right: propsToReturn.iconPosition !== "left" && propsForChild.icon ? '25px' : '0', left: 'unset'}} />}
 			</Form.Input>;
 	}
 
-	// no children, render directly
+  // no children, render directly
 	return <Form.Input { ...propsToReturn } id={id}>
 						<input ref={inputRef} className={DefaultProtectedClassName} />
-						{propsForChild.icon && <Icon name={propsForChild.icon} />}
-						{!hideClearIcon && <Icon name="times" circular link size="small" className="clearIcon" onClick={handleClear} style={{right: propsToReturn.iconPosition !== "left" && getClearIconPosition(), left: 'unset', opacity: props.value?.length > 0 ? '0.5' : '0', visibility: props.value?.length > 0 ? 'visible' : 'hidden'}} />}
+						{propsForChild.icon && <Icon name={propsForChild.icon} onClick={handleIconClick} style={{cursor: 'pointer', pointerEvents: 'all'}} />}
+						{!hideClearIcon && <Icon name="times" circular link size="small" className="clearIcon" onClick={handleClear} style={{right: propsToReturn.iconPosition !== "left" && getClearIconPosition(), left: 'unset', opacity: rest.value?.length > 0 ? '0.5' : '0', visibility: rest.value?.length > 0 ? 'visible' : 'hidden'}} />}
 						{!hideIcon && <Icon name="barcode" style={{right: propsToReturn.iconPosition !== "left" && propsForChild.icon ? '25px' : '0', left: 'unset'}} />}
 					</Form.Input>;
 };
@@ -160,18 +182,15 @@ ProtectedInput.propTypes = {
   hideIcon: PropTypes.bool,
 	/** True to hide clear icon */
 	hideClearIcon: PropTypes.bool,
+  /** Event triggered when the clear button is clicked */
+  onClear: PropTypes.func,
 	/** Event triggered when barcode reading has started */
 	onBarcodeReadStarted: PropTypes.func,
 	/** Event triggered when barcode reading has been cancelled */
 	onBarcodeReadCancelled: PropTypes.func,
 	/** Event triggered when barcode reading has completed */
-	onBarcodeReadReceived: PropTypes.func
+	onBarcodeReadReceived: PropTypes.func,
+  /** Event triggered when the icon is clicked */
+  onIconClick: PropTypes.func
 	/** !!! Note: All new props added must be excluded above. See propsToExclude */
-};
-
-ProtectedInput.defaultProps = {
-	clearOnScan: true,
-  allowEnter: false,
-	hideIcon: false,
-	hideClearIcon: false
 };

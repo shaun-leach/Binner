@@ -57,7 +57,7 @@ export function LowInventory (props) {
   }, [filterBy, filterByValue, pageSize, sortBy, sortDirection]);
 
   /*useEffect(() => {
-    console.log('useEffect 1', byParam, valueParam, initComplete);
+    console.debug('useEffect 1', byParam, valueParam, initComplete);
     if (pageSize === -1) return;
     if (by && by.length > 0) {
       // likewise, clear keyword if we're in a bin search
@@ -120,7 +120,8 @@ export function LowInventory (props) {
 
   const handlePageSizeChange = async (e, pageSize) => {
     setPageSize(pageSize);
-    await loadParts(page, true, by, byValue, pageSize);
+    setPage(1);
+    await loadParts(1, true, by, byValue, pageSize);
   };
 
   const handleSortChange = async (sortBy, sortDirection) => {
@@ -170,7 +171,7 @@ export function LowInventory (props) {
               <Button key={index} primary size="mini" onClick={e => removeFilter(e, filterName, filterByValue[index])}>
                 <Icon name="delete" />
                 {filterName}: {filterByValue[index]}
-              </Button>       
+              </Button>
             ))
           }
       </div>

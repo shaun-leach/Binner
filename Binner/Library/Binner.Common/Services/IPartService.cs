@@ -23,7 +23,7 @@ namespace Binner.Common.Services
         /// </summary>
         /// <param name="part"></param>
         /// <returns></returns>
-        Task<Part> UpdatePartAsync(Part part);
+        Task<Part?> UpdatePartAsync(Part part);
 
         /// <summary>
         /// Delete an existing part
@@ -85,7 +85,14 @@ namespace Binner.Common.Services
         /// </summary>
         /// <param name="partTypeId"></param>
         /// <returns></returns>
-        Task<PartType?> GetPartTypeAsync(int partTypeId);
+        Task<PartType?> GetPartTypeAsync(long partTypeId);
+
+        /// <summary>
+        /// Get a partType by its name
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        Task<PartType?> GetPartTypeAsync(string name);
 
         /// <summary>
         /// Get information about a barcode
@@ -93,7 +100,7 @@ namespace Binner.Common.Services
         /// <param name="barcode"></param>
         /// <param name="barcodeType"></param>
         /// <returns></returns>
-        Task<IServiceResult<PartResults?>> GetBarcodeInfoAsync(string barcode, ScannedBarcodeType barcodeType);
+        Task<IServiceResult<PartResults?>> GetBarcodeInfoAsync(string barcode, ScannedLabelType barcodeType);
 
         /// <summary>
         /// Get metadata about a part number
@@ -130,14 +137,28 @@ namespace Binner.Common.Services
         /// <summary>
         /// Get all part types
         /// </summary>
-        /// <returns></returns>
+                /// <returns></returns>
         Task<ICollection<PartType>> GetPartTypesAsync();
+
+        /// <summary>
+        /// Get all part types
+        /// </summary>
+        /// <param name="filterEmpty">True to filter empty part type categories (no parts assigned)</param>
+        /// <returns></returns>
+        Task<ICollection<PartType>> GetPartTypesAsync(bool filterEmpty);
 
         /// <summary>
         /// Get all part types and the number of parts in each type
         /// </summary>
         /// <returns></returns>
         Task<ICollection<PartTypeResponse>> GetPartTypesWithPartCountsAsync();
+
+        /// <summary>
+        /// Get all parts by type
+        /// </summary>
+        /// <param name="partType"></param>
+        /// <returns></returns>
+        Task<ICollection<Part>> GetPartsByPartTypeAsync(PartType partType);
 
         /// <summary>
         /// Get count of all unique parts

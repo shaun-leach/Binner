@@ -7,6 +7,16 @@ namespace Binner.Data
     public class BinnerContext : DbContext
     {
         /// <summary>
+        /// User-defined custom fields
+        /// </summary>
+        public DbSet<CustomField> CustomFields { get; set; } = null!;
+
+        /// <summary>
+        /// Values for CustomFields
+        /// </summary>
+        public DbSet<CustomFieldValue> CustomFieldValues { get; set; } = null!;
+
+        /// <summary>
         /// Label designs
         /// </summary>
         public DbSet<Label> Labels { get; set; } = null!;
@@ -27,9 +37,24 @@ namespace Binner.Data
         public DbSet<OAuthRequest> OAuthRequests { get; set; } = null!;
 
         /// <summary>
+        /// History of imported orders
+        /// </summary>
+        public DbSet<OrderImportHistory> OrderImportHistories { get; set; } = null!;
+
+        /// <summary>
+        /// Individual line items associated with an Order Import History
+        /// </summary>
+        public DbSet<OrderImportHistoryLineItem> OrderImportHistoryLineItems { get; set; } = null!;
+
+        /// <summary>
         /// Parts
         /// </summary>
         public DbSet<Part> Parts { get; set; } = null!;
+
+        /// <summary>
+        /// History of barcode scanned labels
+        /// </summary>
+        public DbSet<PartScanHistory> PartScanHistories { get; set; } = null!;
 
         /// <summary>
         /// Part suppliers (manually created suppliers by user)

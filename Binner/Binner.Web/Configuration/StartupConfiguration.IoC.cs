@@ -11,11 +11,13 @@ using Binner.Model;
 using Binner.Model.Configuration;
 using Binner.Model.IO.Printing;
 using Binner.Model.IO.Printing.PrinterHardware;
+using Binner.StorageProvider.EntityFrameworkCore;
+using Binner.Web.Authorization;
 using Binner.Web.ServiceHost;
 using LightInject;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
-using Binner.StorageProvider.EntityFrameworkCore;
 
 namespace Binner.Web.Configuration
 {
@@ -27,6 +29,7 @@ namespace Binner.Web.Configuration
             // Transient = created each time requested, Scoped = once per http/scope request, Singleton = first time requested only
             // allow the container to be injected
             services.AddSingleton<IServiceContainer, ServiceContainer>();
+            services.AddSingleton<IAuthorizationHandler, KiCadTokenAuthorizationHandler>();
             services.AddSingleton(container);
             container.RegisterInstance(container);
 
@@ -47,6 +50,10 @@ namespace Binner.Web.Configuration
 
             // register storage provider
             var storageProviderConfig = container.GetInstance<StorageProviderConfiguration>();
+            
+            // inject configuration from environment variables (if set)
+            EnvironmentVarConstants.SetConfigurationFromEnvironment(storageProviderConfig);
+
             container.Register<IStorageProviderFactory, StorageProviderFactory>(new PerContainerLifetime());
             var providerFactory = container.GetInstance<IStorageProviderFactory>();
 
@@ -66,7 +73,7 @@ namespace Binner.Web.Configuration
             container.Register<HttpClientFactory>(new PerContainerLifetime());
 
             // request context
-            container.Register<RequestContextAccessor>(new PerContainerLifetime());
+            container.Register<IRequestContextAccessor, RequestContextAccessor>(new PerContainerLifetime());
 
             // the main server app
             container.Register<BinnerWebHostService>(new PerContainerLifetime());
@@ -114,6 +121,8 @@ namespace Binner.Web.Configuration
             container.Register<IAccountService, AccountService>(new PerScopeLifetime());
             container.Register<IAdminService, AdminService>(new PerScopeLifetime());
             container.Register<IPrintService, PrintService>(new PerScopeLifetime());
+            container.Register<IPartScanHistoryService, PartScanHistoryService>(new PerScopeLifetime());
+            container.Register<IOrderImportHistoryService, OrderImportHistoryService>(new PerScopeLifetime());
             container.Register<IBackupProvider, BackupProvider>(new PerScopeLifetime());
             container.Register<JwtService>(new PerScopeLifetime());
             container.Register<IntegrationService>(new PerScopeLifetime());
@@ -131,7 +140,8 @@ namespace Binner.Web.Configuration
 
         private static void RegisterApiIntegrations(IServiceContainer container)
         {
-            // register integration apis    
+            // register integration apis
+            container.Register<IApiHttpClientFactory, ApiHttpClientFactory>(new PerScopeLifetime());
             container.Register<IIntegrationApiFactory, IntegrationApiFactory>(new PerScopeLifetime());
             container.Register<IIntegrationCredentialsCacheProvider, IntegrationCredentialsCacheProvider>(new PerScopeLifetime());
         }

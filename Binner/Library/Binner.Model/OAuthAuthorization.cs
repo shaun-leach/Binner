@@ -1,4 +1,6 @@
-﻿namespace Binner.Model
+﻿using System.Net.Sockets;
+
+namespace Binner.Model
 {
     public class OAuthAuthorization
     {
@@ -6,6 +8,7 @@
         /// True if authorization was successful
         /// </summary>
         public bool IsAuthorized => AuthorizationReceived
+            && !MustAuthorize
             && string.IsNullOrEmpty(Error)
             && string.IsNullOrEmpty(ErrorDescription)
             && !string.IsNullOrEmpty(AccessToken)
@@ -88,7 +91,6 @@
 
         public OAuthAuthorization()
         {
-
         }
 
         public OAuthAuthorization(string provider, Guid id)
