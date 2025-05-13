@@ -41,9 +41,8 @@ namespace Binner.Common.IO
                 }
 
                 // Convert to an NPOI workbook
-                HSSFWorkbook workbook = new HSSFWorkbook();
-                ISheet worksheet = workbook.CreateSheet("BOM");
-                IRow headerRow = worksheet.CreateRow(0);
+                var workbook = new HSSFWorkbook();
+                var worksheet = workbook.CreateSheet("BOM");
 
                 var rowNumber = 0;
                 foreach (var row in rows)
@@ -108,8 +107,11 @@ namespace Binner.Common.IO
                 if ((rowDelimiters.Any(x => x.Equals(c)) && !insideQuotes) || i == data.Length - 1)
                 {
                     var row = data.Substring(startPos, i - startPos + 1 - (removeBoundary && !(i == data.Length - 1) ? 1 : 0));
-                    if (row != null)
+                    if (row != null) {
+                        row = row.TrimStart(new char[] {' '});
+                        row = row.TrimEnd(new char[] {' '});
                         rows.Add(row);
+                    }
                     startPos = i + 1;
                 }
             }
