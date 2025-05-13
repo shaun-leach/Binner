@@ -3,6 +3,7 @@ using System;
 using Binner.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -17,14 +18,18 @@ namespace Binner.Data.Migrations.MySql.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("dbo")
-                .HasAnnotation("ProductVersion", "7.0.5")
+                .HasAnnotation("ProductVersion", "8.0.4")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
+
+            MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
 
             modelBuilder.Entity("Binner.Data.Model.Label", b =>
                 {
                     b.Property<int>("LabelId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("LabelId"));
 
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
@@ -68,6 +73,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<int>("LabelTemplateId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("LabelTemplateId"));
 
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
@@ -132,9 +139,11 @@ namespace Binner.Data.Migrations.MySql.Migrations
 
             modelBuilder.Entity("Binner.Data.Model.OAuthCredential", b =>
                 {
-                    b.Property<string>("Provider")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)");
+                    b.Property<int>("OAuthCredentialId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("OAuthCredentialId"));
 
                     b.Property<string>("AccessToken")
                         .HasColumnType("longtext");
@@ -160,13 +169,18 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<int?>("OrganizationId")
                         .HasColumnType("int");
 
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
                     b.Property<string>("RefreshToken")
                         .HasColumnType("longtext");
 
                     b.Property<int?>("UserId")
                         .HasColumnType("int");
 
-                    b.HasKey("Provider");
+                    b.HasKey("OAuthCredentialId");
 
                     b.HasIndex("UserId");
 
@@ -178,6 +192,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<int>("OAuthRequestId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("OAuthRequestId"));
 
                     b.Property<string>("AuthorizationCode")
                         .HasColumnType("longtext");
@@ -237,6 +253,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("OrganizationId"));
+
                     b.Property<DateTime>("DateCreatedUtc")
                         .HasColumnType("datetime(6)");
 
@@ -259,6 +277,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<long>("PartId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("PartId"));
 
                     b.Property<string>("ArrowPartNumber")
                         .HasColumnType("longtext");
@@ -401,6 +421,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
 
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("PartSupplierId"));
+
                     b.Property<decimal?>("Cost")
                         .HasColumnType("decimal(18,4)");
 
@@ -456,6 +478,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
 
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("PartTypeId"));
+
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime(6)")
@@ -497,6 +521,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<long>("PcbId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("PcbId"));
 
                     b.Property<double>("Cost")
                         .HasColumnType("double");
@@ -545,6 +571,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
 
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("PcbStoredFileAssignmentId"));
+
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime(6)")
@@ -589,6 +617,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<long>("ProjectId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ProjectId"));
 
                     b.Property<int>("Color")
                         .HasColumnType("int");
@@ -635,6 +665,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<long>("ProjectPartAssignmentId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ProjectPartAssignmentId"));
 
                     b.Property<double>("Cost")
                         .HasColumnType("double");
@@ -705,6 +737,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
 
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ProjectPcbAssignmentId"));
+
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime(6)")
@@ -743,6 +777,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<long>("ProjectPcbProduceHistoryId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ProjectPcbProduceHistoryId"));
 
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
@@ -795,6 +831,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
 
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ProjectProduceHistoryId"));
+
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime(6)")
@@ -837,6 +875,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<long>("StoredFileId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("StoredFileId"));
 
                     b.Property<int>("Crc32")
                         .HasColumnType("int");
@@ -894,6 +934,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<int>("UserId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("UserId"));
 
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
@@ -990,6 +1032,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<int>("UserIntegrationConfigurationId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("UserIntegrationConfigurationId"));
 
                     b.Property<string>("ArrowApiKey")
                         .HasColumnType("longtext");
@@ -1100,6 +1144,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("UserLoginHistoryId"));
+
                     b.Property<bool>("CanLogin")
                         .HasColumnType("tinyint(1)");
 
@@ -1149,6 +1195,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("UserPrinterConfigurationId"));
+
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime(6)")
@@ -1191,6 +1239,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<int>("UserPrinterTemplateConfigurationId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("UserPrinterTemplateConfigurationId"));
 
                     b.Property<bool>("AutoSize")
                         .HasColumnType("tinyint(1)");
@@ -1274,6 +1324,8 @@ namespace Binner.Data.Migrations.MySql.Migrations
                     b.Property<int>("UserTokenId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("UserTokenId"));
 
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()

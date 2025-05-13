@@ -43,15 +43,20 @@ namespace Binner.Common.Integrations
             _client = new HttpClient();
         }
 
+        private void ValidateConfiguration()
+        {
+            if (string.IsNullOrEmpty(_configuration.Username)) throw new BinnerConfigurationException("ArrowConfiguration must specify a Username!");
+            if (string.IsNullOrEmpty(_configuration.ApiKey)) throw new BinnerConfigurationException("ArrowConfiguration must specify a ApiKey!");
+            if (string.IsNullOrEmpty(_configuration.ApiUrl)) throw new BinnerConfigurationException("ArrowConfiguration must specify a ApiUrl!");
+        }
+
         public Task<IApiResponse> SearchAsync(string keyword, int recordCount = 25, Dictionary<string, string>? additionalOptions = null) => SearchAsync(keyword, string.Empty, string.Empty, recordCount, additionalOptions);
 
         public Task<IApiResponse> SearchAsync(string keyword, string partType, int recordCount = 25, Dictionary<string, string>? additionalOptions = null) => SearchAsync(keyword, partType, string.Empty, recordCount, additionalOptions);
 
         public async Task<IApiResponse> SearchAsync(string keyword, string partType, string mountingType, int recordCount = 25, Dictionary<string, string>? additionalOptions = null)
         {
-            if (string.IsNullOrEmpty(_configuration.Username)) throw new BinnerConfigurationException("ArrowConfiguration must specify a Username!");
-            if (string.IsNullOrEmpty(_configuration.ApiKey)) throw new BinnerConfigurationException("ArrowConfiguration must specify a ApiKey!");
-            if (string.IsNullOrEmpty(_configuration.ApiUrl)) throw new BinnerConfigurationException("ArrowConfiguration must specify a ApiUrl!");
+            ValidateConfiguration();
 
             if (!(recordCount > 0)) throw new ArgumentOutOfRangeException(nameof(recordCount));
             
@@ -59,14 +64,15 @@ namespace Binner.Common.Integrations
             var uri = Url.Combine(_configuration.ApiUrl, BasePath, $"/itemservice/v4/en/search/token?login={_configuration.Username}&apiKey={_configuration.ApiKey}&start={recordStart}&rows={recordCount}&search_token={keyword}");
             var requestMessage = CreateRequest(HttpMethod.Get, uri);
             var response = await _client.SendAsync(requestMessage);
-            if (TryHandleResponse(response, out var apiResponse))
+            var result = await TryHandleResponseAsync(response);
+            if (!result.IsSuccessful)
             {
-                return apiResponse;
+                // return api error
+                return result.ApiResponse;
             }
 
             // 200 OK
-            var resultString = response.Content.ReadAsStringAsync().Result;
-            //resultString = FakeResults.SearchResult1;
+            var resultString = await response.Content.ReadAsStringAsync();
 
             var results = JsonConvert.DeserializeObject<ArrowResponse>(resultString, _serializerSettings) ?? new();
             return new ApiResponse(results, nameof(ArrowApi));
@@ -74,9 +80,8 @@ namespace Binner.Common.Integrations
 
         public async Task<IApiResponse> GetOrderAsync(string orderId, Dictionary<string, string>? additionalOptions = null)
         {
-            if (string.IsNullOrEmpty(_configuration.Username)) throw new BinnerConfigurationException($"{nameof(ArrowConfiguration)} must specify a Username!");
-            if (string.IsNullOrEmpty(_configuration.ApiKey)) throw new BinnerConfigurationException($"{nameof(ArrowConfiguration)} must specify a ApiKey!");
-            if (string.IsNullOrEmpty(_configuration.ApiUrl)) throw new BinnerConfigurationException($"{nameof(ArrowConfiguration)} must specify a ApiUrl!");
+            ValidateConfiguration();
+
             if (additionalOptions == null) throw new ArgumentNullException(nameof(additionalOptions));
             if (!additionalOptions.ContainsKey("password") || string.IsNullOrEmpty(additionalOptions["password"])) throw new ArgumentNullException(nameof(additionalOptions), "User password value is required!");
             var username = _configuration.Username;
@@ -88,13 +93,15 @@ namespace Binner.Common.Integrations
             var uri = Url.Combine("https://www.arrow.com", BasePath, $"/services-cc/automatedCheckout/checkOrderStatus?username={username}&password={passwordHash}&format=json");
             var requestMessage = CreateRequest(HttpMethod.Post, uri);
             var response = await _client.SendAsync(requestMessage);
-            if (TryHandleResponse(response, out var apiResponse))
+            var result = await TryHandleResponseAsync(response);
+            if (!result.IsSuccessful)
             {
-                return apiResponse;
+                // return api error
+                return result.ApiResponse;
             }
 
             // 200 OK
-            var resultString = response.Content.ReadAsStringAsync().Result;
+            var resultString = await response.Content.ReadAsStringAsync();
             var results = JsonConvert.DeserializeObject<OrderResponse>(resultString, _serializerSettings) ?? new();
             return new ApiResponse(results, nameof(ArrowApi));
         }
@@ -119,9 +126,9 @@ namespace Binner.Common.Integrations
             return builder.ToString();
         }
 
-        private bool TryHandleResponse(HttpResponseMessage response,out IApiResponse apiResponse)
+        private async Task<(bool IsSuccessful, IApiResponse ApiResponse)> TryHandleResponseAsync(HttpResponseMessage response)
         {
-            apiResponse = apiResponse = ApiResponse.Create($"Api returned error status code {response.StatusCode}: {response.ReasonPhrase}", nameof(ArrowApi));
+            IApiResponse apiResponse = ApiResponse.Create($"Api returned error status code {response.StatusCode}: {response.ReasonPhrase}", nameof(ArrowApi));
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                 throw new ArrowUnauthorizedException(response?.ReasonPhrase ?? string.Empty);
             else if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
@@ -133,21 +140,21 @@ namespace Binner.Common.Integrations
                     if (response.Headers.Contains("X-RateLimit-Remaining"))
                         remainingTime = TimeSpan.FromSeconds(int.Parse(response.Headers.GetValues("X-RateLimit-Remaining").First()));
                     apiResponse = ApiResponse.Create($"{nameof(ArrowApi)} request throttled. Try again in {remainingTime}", nameof(ArrowApi));
-                    return true;
+                    return (false, apiResponse);
                 }
 
                 // return generic error
-                return true;
+                return (false, apiResponse);
             }
             else if (response.IsSuccessStatusCode)
             {
                 // allow processing of response
-                return false;
+                return (true, apiResponse);
             }
 
-            var resultString = response.Content.ReadAsStringAsync().Result;
+            var resultString = await response.Content.ReadAsStringAsync();
             // return generic error
-            return true;
+            return (false, apiResponse);
         }
 
         private HttpRequestMessage CreateRequest(HttpMethod method, Uri uri)

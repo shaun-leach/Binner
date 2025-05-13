@@ -90,26 +90,27 @@ namespace Binner.Global.Common
         public IUserContext? GetUserContext()
         {
             var context = _httpContextAccessor.HttpContext;
-            if (context != null && context.User != null && context.User.Identity?.IsAuthenticated == true)
+            ClaimsPrincipal? currentPrincipal = null;
+            if(context != null && context.User != null && context.User.Identities.Any(x => x.IsAuthenticated) == true)
+                currentPrincipal = context.User;
+            // support using the current thread principal if user context is not available
+            if (currentPrincipal == null)
+                currentPrincipal = System.Threading.Thread.CurrentPrincipal as ClaimsPrincipal;
+
+            if (currentPrincipal?.Identities.Any(x => x.IsAuthenticated) == true)
             {
+                var identity = currentPrincipal.Identities.FirstOrDefault(x => x.IsAuthenticated);
                 return new UserContext
                 {
-                    UserId = int.Parse(context.User.Claims.Where(x => x.Type == "UserId").Select(x => x.Value).FirstOrDefault() ?? "0"),
-                    OrganizationId = int.Parse(context.User.Claims.Where(x => x.Type == "OrganizationId").Select(x => x.Value).FirstOrDefault() ?? "0"),
-                    Name = context.User.Claims.Where(x => x.Type == "Name").Select(x => x.Value).FirstOrDefault(),
-                    EmailAddress = context.User.Identity.Name,
-                    PhoneNumber = context.User.Claims.Where(x => x.Type == "PhoneNumber").Select(x => x.Value).FirstOrDefault()
+                    UserId = int.Parse(currentPrincipal.Claims.Where(x => x.Type == "UserId").Select(x => x.Value).FirstOrDefault() ?? "0"),
+                    OrganizationId = int.Parse(currentPrincipal.Claims.Where(x => x.Type == "OrganizationId").Select(x => x.Value).FirstOrDefault() ?? "0"),
+                    Name = currentPrincipal.Claims.Where(x => x.Type == "Name").Select(x => x.Value).FirstOrDefault(),
+                    EmailAddress = identity?.Name ?? string.Empty,
+                    PhoneNumber = currentPrincipal.Claims.Where(x => x.Type == "PhoneNumber").Select(x => x.Value).FirstOrDefault()
                 };
             }
-            // todo: migrate
-            return new UserContext
-            {
-                UserId = 1,
-                OrganizationId = 1,
-                Name = "Admin",
-                EmailAddress = "admin"
-            };
-            //return null;
+            // not authenticated
+            return null;
         }
 
         /// <summary>
