@@ -3,7 +3,7 @@
     /// <summary>
     /// A part
     /// </summary>
-    public class PartResponse
+    public class PartResponse : ICustomFields
     {
         public long PartId { get; set; }
 
@@ -161,5 +161,16 @@
         /// Extension value 2 (can be used to store custom information)
         /// </summary>
         public string? ExtensionValue2 { get; set; }
+
+        /// <summary>
+        /// Part value. '1k', '4.7uf', or the model name of the chip.
+        /// Used for KiCad part value.
+        /// </summary>
+        public string? Value { get; set; }
+
+        /// <summary>
+        /// List of custom field values associated with this part
+        /// </summary>
+        public ICollection<CustomValue> CustomFields { get; set; } = new List<CustomValue>();
     }
 }

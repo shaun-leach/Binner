@@ -11,15 +11,19 @@ import { ProjectColors } from "../common/Types";
 import { toast } from "react-toastify";
 import { getCurrencySymbol } from "../common/Utils";
 import { format, parseJSON } from "date-fns";
-import { AddBomPartModal } from "../components/AddBomPartModal";
-import { AddPcbModal } from "../components/AddPcbModal";
-import { ProducePcbModal } from "../components/ProducePcbModal";
+import { AddBomPartModal } from "../components/modals/AddBomPartModal";
+import { AddPcbModal } from "../components/modals/AddPcbModal";
+import { ProducePcbModal } from "../components/modals/ProducePcbModal";
 import { Clipboard } from "../components/Clipboard";
 import { FormatFullDateTime } from "../common/datetime";
 import { getAuthToken } from "../common/authentication";
-import { getProduciblePcbCount, getTotalOutOfStockParts, getTotalInStockParts, getProjectColor } from "../common/bomTools";
+import { getSystemSettings } from "../common/applicationSettings";
+import { getProduciblePcbCount, getProducibleBomCount, getTotalOutOfStockParts, getTotalInStockParts, getProjectColor } from "../common/bomTools";
 import "./Bom.css";
 
+/** BOM Management
+ * Description: Manage parts and PCBs that are part of a BOM project
+ */
 export function Bom(props) {
   const { t } = useTranslation();
   const PopupDelayMs = 500;
@@ -40,6 +44,7 @@ export function Bom(props) {
   const [project, setProject] = useState(defaultProject);
   const [column, setColumn] = useState(null);
   const [direction, setDirection] = useState(null);
+  const [systemSettings, setSystemSettings] = useState({ currency: "USD", customFields: [] });
   const [btnSelectToolsDisabled, setBtnSelectToolsDisabled] = useState(true);
   const [addPartModalOpen, setAddPartModalOpen] = useState(false);
   const [addPcbModalOpen, setAddPcbModalOpen] = useState(false);
@@ -85,7 +90,7 @@ export function Bom(props) {
   ))];
   
 
-  const loadProject = async (projectName) => {
+  const loadProject = async (projectName, systemSettings) => {
     setLoading(true);
     const response = await fetchApi(`/api/bom?name=${encodeURIComponent(projectName)}`).catch((c) => {
       if (c.status === 404) {
@@ -97,7 +102,7 @@ export function Bom(props) {
     });
     if (response && response.data) {
       const { data } = response;
-      setProject(data);
+      setProject({ ...data });
       setInventoryMessage(getInventoryMessage(data));
       setTotalPages(Math.ceil(data.parts.length / pageSize));
       setCurrentPcbPages(_.map(data.pcbs, (x) => ({ pcbId: x.pcbId, page: 1 })));
@@ -106,7 +111,11 @@ export function Bom(props) {
   };
 
   useEffect(() => {
-    loadProject(props.params.project);
+    getSystemSettings()
+      .then((systemSettings) => {
+        setSystemSettings(systemSettings);
+        loadProject(props.params.project, systemSettings);
+      });
   }, [props.params.project]);
 
   const handlePageSizeChange = async (e, control) => {
@@ -131,18 +140,9 @@ export function Bom(props) {
     setCurrentPcbPages([...currentPcbPages]);
   };
 
-  const handleChange = (e, control) => {
-    project[control.name] = control.value;
-    setProject({ ...project });
-  };
-
   const handleFilterInStockChange = (e, control) => {
     setFilterInStock(control.checked);
   };
-
-  const handleClick = (e, control) => {};
-
-  const onSubmit = () => {};
 
   const handleSort = (clickedColumn) => () => {
     if (column !== clickedColumn) {
@@ -595,30 +595,37 @@ export function Bom(props) {
       );
     }
 
-    const pcbCount = getProduciblePcbCount(project.parts, pcb);
-    if (pcbCount.count === 0) {
-      return <div className="inventorymessage">{t("page.bom.notEnoughPartsToProduceBom", "You do not have enough parts to produce your entire BOM.")}</div>;
-    }
-    const limitingPcb = _.find(project.pcbs, (x) => x.pcbId === pcbCount.limitingPcb);
-    return (
-      <div className="inventorymessage">
-        <div>
-          <Trans i18nKey="page.bom.bomProduceCount" count={pcbCount.count}>
-            You can produce your entire BOM <b>{{ count: pcbCount.count }}</b> times with your current inventory.
-          </Trans>
-        </div>
-        {limitingPcb && (
-          <div className="textvalignmiddle">
-            <i className="pcb-icon tiny" />
-            <span>
-              <Trans i18nKey="page.bom.lowestPcb" name={limitingPcb?.name}>
-                <i>{{ name: limitingPcb?.name }}</i> is the lowest on inventory.
-              </Trans>
-            </span>
-          </div>
-        )}
+    const maxPcbProduceCount = getProduciblePcbCount(project.parts, pcb);
+    const maxBomPcbProduceCount = getProducibleBomCount(project.parts, project.pcbs);
+
+    // list the pcb that has the least amount of parts
+    const limitingPcb = _.find(project.pcbs, (x) => x.pcbId === maxPcbProduceCount.limitingPcb);
+    const result = (<div className="inventorymessage">
+      {maxBomPcbProduceCount.count > 0 
+      ?
+      <div>
+        <Trans i18nKey="page.bom.maxBomPcbProduceCount" count={maxBomPcbProduceCount.count}>
+          You can produce your entire BOM <b>{{ count: maxBomPcbProduceCount.count }}</b> times with your current inventory.
+        </Trans>
       </div>
-    );
+      : <div>{t("page.bom.notEnoughPartsToProduceBom", "You do not have enough parts to produce your entire BOM.")}</div>}
+      <div>
+        <Trans i18nKey="page.bom.maxPcbProduceCount" count={maxPcbProduceCount.count}>
+          You can produce <b>{{ count: maxPcbProduceCount.count }}</b> PCB(s) with your current inventory.
+        </Trans>
+      </div>
+      {limitingPcb && (
+        <div className="textvalignmiddle">
+          <i className="pcb-icon tiny" />
+          <span>
+            <Trans i18nKey="page.bom.lowestPcb" name={limitingPcb?.name}>
+              <i>{{ name: limitingPcb?.name }}</i> is the lowest on inventory.
+            </Trans>
+          </span>
+        </div>
+      )}
+    </div>);
+    return result;
   };
 
   const setActivePartName = (e, partName) => {
@@ -961,7 +968,7 @@ export function Bom(props) {
               ))
             ) : (
               <Table.Row>
-                <Table.Cell colSpan={12} textAlign="center" style={{ padding: "30px" }}>
+                <Table.Cell colSpan={14} textAlign="center" style={{ padding: "30px" }}>
                   {filterInStock ? t("message.noOutOfStockParts", "No out of stock parts.") :
                     <>
                     {t("message.noPartsAdded", "No parts added.")}
@@ -993,6 +1000,7 @@ export function Bom(props) {
   const outOfStock = getTotalOutOfStockParts(project?.parts).length;
   const inStock = getTotalInStockParts(project?.parts).length;
   const producibleCount = getProduciblePcbCount(project?.parts);
+  const bomProducibleCount = getProducibleBomCount(project.parts, project.pcbs);
 
   const tabs = [
     {
@@ -1098,10 +1106,10 @@ export function Bom(props) {
       <Form className="bom">
         <Segment raised disabled={pageDisabled} className="thicker" {...getProjectColor(ProjectColors, project)}>
           <Grid columns={2} style={{ marginBottom: "10px" }}>
-            <Grid.Column className="projectinfo">
+            <Grid.Column className="projectinfo" width={7}>
               <span className="large">{project.name}</span>
-              <div style={{ float: "right" }}>
-                <Link to={`/project/${project.name}`}>{t("label.editProject", "Edit Project")}</Link>
+              <div className="link-icon">
+                <Link to={`/project/${encodeURIComponent(project.name)}`}><Icon name="edit" /></Link>
               </div>
               <div>
                 <label>
@@ -1109,27 +1117,40 @@ export function Bom(props) {
                 </label>
               </div>
             </Grid.Column>
-            <Grid.Column>
+            <Grid.Column width={9}>
               <Segment inverted textAlign="center" className="statisticsContainer">
-                <Statistic.Group widths="four" size="tiny">
-                  <Statistic inverted color="blue">
-                    <Statistic.Value>{inStock}</Statistic.Value>
-                    <Statistic.Label>{t("label.inStock", "In Stock")}</Statistic.Label>
-                  </Statistic>
-                  <Statistic inverted color={`${project?.parts.length > 0 && outOfStock > 0 ? "red" : "blue"}`}>
-                    <Statistic.Value>{outOfStock}</Statistic.Value>
-                    <Statistic.Label>{t("label.outOfStock", "Out of Stock")}</Statistic.Label>
-                  </Statistic>
-                  <Statistic inverted color="blue">
-                    <Statistic.Value>{project.parts.length}</Statistic.Value>
-                    <Statistic.Label>{t("label.totalParts", "Total Parts")}</Statistic.Label>
-                  </Statistic>
-                  <Statistic inverted color={`${project?.parts.length > 0 && producibleCount.count === 0 ? "red" : "blue"}`}>
-                    <Statistic.Value>{producibleCount.count}</Statistic.Value>
-                    <Statistic.Label>{t("label.producible", "Producible")}</Statistic.Label>
-                  </Statistic>
-                </Statistic.Group>
-                {inventoryMessage}
+                <Grid columns={2} style={{backgroundColor: 'transparent'}}>
+                  <Grid.Column width={11}>
+                    <Statistic.Group widths="three" size="tiny">
+                      <Statistic inverted color="blue">
+                        <Statistic.Value>{inStock}</Statistic.Value>
+                        <Statistic.Label>{t("label.inStock", "In Stock")}</Statistic.Label>
+                      </Statistic>
+                      <Statistic inverted color={`${project?.parts.length > 0 && outOfStock > 0 ? "red" : "blue"}`}>
+                        <Statistic.Value>{outOfStock}</Statistic.Value>
+                        <Statistic.Label>{t("label.outOfStock", "Out of Stock")}</Statistic.Label>
+                      </Statistic>
+                      <Statistic inverted color="blue">
+                        <Statistic.Value>{project.parts.length}</Statistic.Value>
+                        <Statistic.Label>{t("label.totalParts", "Total Parts")}</Statistic.Label>
+                      </Statistic>
+                    </Statistic.Group>
+                    {inventoryMessage}
+                  </Grid.Column>
+                  <Grid.Column width={5}>
+                    <Statistic.Group widths="one" size="tiny">
+                      <Statistic inverted color={`${project?.parts.length > 0 && bomProducibleCount.count === 0 ? "red" : "blue"}`}>
+                        <Statistic.Value>{bomProducibleCount.count}</Statistic.Value>
+                        <Statistic.Label>{t("label.bomProducible", "BOM Producible")}</Statistic.Label>
+                      </Statistic>
+                      <Statistic inverted color={`${project?.parts.length > 0 && producibleCount.count === 0 ? "red" : "blue"}`}>
+                        <Statistic.Value>{producibleCount.count}</Statistic.Value>
+                        <Statistic.Label>{t("label.pcbProducible", "PCB(s) Producible")}</Statistic.Label>
+                      </Statistic>
+                    </Statistic.Group>
+                  </Grid.Column>
+                </Grid>
+                
               </Segment>
             </Grid.Column>
           </Grid>
@@ -1205,7 +1226,7 @@ export function Bom(props) {
               trigger={
                 <Button.Group size="mini">
                   <Button onClick={handleDownload} size="mini" style={{ marginRight: "0" }} disabled={btnSelectToolsDisabled}>
-                    <Icon name="mail forward" /> {t("button.move", "Move")}
+                    <Icon name="mail forward" /> {t("button.moveTo", "Move to")}
                   </Button>
                   <Dropdown className="button icon" floating options={moveOptions} trigger={<></>} value={-1} onChange={handleMove} disabled={btnSelectToolsDisabled} />
                 </Button.Group>

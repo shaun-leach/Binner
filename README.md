@@ -1,7 +1,8 @@
 # Binner
-[![GitHub release](https://img.shields.io/github/release/replaysMike/Binner.svg)](https://GitHub.com/replaysMike/Binner/releases/)
-[![GitHub commits](https://img.shields.io/github/commits-since/replaysMike/Binner/v1.0.1.svg)](https://GitHub.com/replaysMike/Binner/commit/)
+[![GitHub release](https://img.shields.io/github/release/replaysMike/Binner.svg?logo=github)](https://GitHub.com/replaysMike/Binner/releases/)
+[![Docker Image Version](https://img.shields.io/docker/v/binnerofficial/binner?logo=docker)](https://hub.docker.com/r/binnerofficial/binner)
 [![Github all releases](https://img.shields.io/github/downloads/replaysMike/Binner/total.svg)](https://GitHub.com/replaysMike/Binner/releases/)
+[![GitHub commits](https://img.shields.io/github/commits-since/replaysMike/Binner/v1.0.1.svg)](https://GitHub.com/replaysMike/Binner/commit/)
 [![GitHub contributors](https://img.shields.io/github/contributors/replaysMike/Binner.svg)](https://GitHub.com/replaysMike/Binner/graphs/contributors/)
 [![GitHub license](https://img.shields.io/github/license/replaysMike/Binner.svg)](https://github.com/replaysMike/Binner/blob/master/LICENSE)
 [![Build status](https://ci.appveyor.com/api/projects/status/gqsaearpptgdn6g8/branch/master?svg=true)](https://ci.appveyor.com/project/MichaelBrown/binner)
@@ -27,6 +28,8 @@ Binner is a free open-source parts inventory tracking system you can run locally
 * Simple web-based UI
 * Barcoding support
 * Label printing
+* KiCad HTTP Library support
+* Supports adding custom fields to your data
 
 ## Planned Upcoming Features for 2025
 - [x] Dedicated datasheet repository (Q1)
@@ -36,13 +39,21 @@ Binner is a free open-source parts inventory tracking system you can run locally
 - [x] Multiple language support (Q1)
 - [x] Auto update (Q1)
 - [x] Full BOM / PCB management (Q1)
-- [x] TME parts api support
+- [x] TME parts api support (Q2)
+- [x] KiCad HTTP Library api support (Q2)
+- [x] Ability to add custom fields (Q2)
 - [ ] Electronic bins support (Q2)
 - [ ] Maybe a parts marketplace? with lasers?
 
 ## Installation
 
-Binner is a cross-platform distribution and runs on Windows, Raspberry Pi OS, Ubuntu and more!
+Binner is a cross-platform distribution and runs on Windows, Raspberry Pi OS, Ubuntu, Docker and more!
+
+### Installation on Docker
+
+Pull the latest Docker image and run an instance using `docker run --name Binner -d binnerofficial/binner:latest`.
+
+Docker is best configured using `docker compose`. Full Docker installation details available at [Docker Hub](https://hub.docker.com/r/binnerofficial/binner) or the [official wiki](https://github.com/replaysMike/Binner/wiki/Docker).
 
 ### Installation on Windows
 

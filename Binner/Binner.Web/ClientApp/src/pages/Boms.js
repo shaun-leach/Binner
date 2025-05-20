@@ -5,13 +5,19 @@ import { Icon, Input, Label, Button, TextArea, Form, Table, Segment, Breadcrumb,
 import { FormHeader } from "../components/FormHeader";
 import _ from 'underscore';
 import { toast } from "react-toastify";
+import { getSystemSettings } from "../common/applicationSettings";
 import { fetchApi } from '../common/fetchApi';
+import { getAuthToken } from "../common/authentication";
 import { ProjectColors } from "../common/Types";
+import { CustomFieldTypes } from "../common/customFieldTypes";
+import { CustomFieldValues } from "../components/CustomFieldValues";
 import { useDropzone } from "react-dropzone";
 import { humanFileSize } from "../common/files";
 import axios from "axios";
-import { getAuthToken } from "../common/authentication";
 
+/** BOM Project listing
+ * Description: List BOM projects and create new ones.
+ */
 export function Boms (props) {
   const { t } = useTranslation();
   const defaultProject = {
@@ -20,11 +26,13 @@ export function Boms (props) {
     location: '',
     color: 0,
     loading: false,
+    customFields: []
   };
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [pageSize, setPageSize] = useState(parseInt(localStorage.getItem("bomsRecordsPerPage")) || 5);
   const [loading, setLoading] = useState(true);
+  const [systemSettings, setSystemSettings] = useState({ currency: "USD", customFields: [] });
   const [addVisible, setAddVisible] = useState(false);
   const [importVisible, setImportVisible] = useState(false);
   const [project, setProject] = useState(defaultProject);
@@ -100,15 +108,12 @@ export function Boms (props) {
   };
 
   useEffect(() => {
-    loadProjects(page, pageSize);
+    getSystemSettings()
+      .then((systemSettings) => {
+        setSystemSettings(systemSettings);
+        loadProjects(page, pageSize);
+      });    
   }, [page]);
-
-  const handleNextPage = () => {
-    if (noRemainingData) return;
-
-    const nextPage = page + 1;
-    loadProjects(nextPage, pageSize);
-  };
 
   const handlePageSizeChange = async (e, control) => {
     const newPageSize = parseInt(control.value);
@@ -139,6 +144,8 @@ export function Boms (props) {
 
   const handleShowAdd = () => {
     setAddVisible(!addVisible);
+    // map defined custom fields to the new project object
+    setProject({ ...defaultProject, customFields: _.filter(systemSettings?.customFields, i => i.customFieldTypeId === CustomFieldTypes.Project.value)?.map((field) => ({ field: field.name, value: '' })) || [] });
   };
 
   const handleShowImport = () => {
@@ -153,9 +160,7 @@ export function Boms (props) {
 
   const onCreateProject = async () => {
     const request = {
-      name: project.name,
-      description: project.description,
-      location: project.location,
+      ...project,
       color: Number.parseInt(project.color) || 0
     };
     const response = await fetchApi('/api/project', {
@@ -167,7 +172,8 @@ export function Boms (props) {
     });
     if (response.responseObject.status === 200) {
       // reset form
-      setProject(defaultProject);
+      // map defined custom fields to the new user object
+      setProject({ ...defaultProject, customFields: _.filter(systemSettings?.customFields, i => i.customFieldTypeId === CustomFieldTypes.Project.value)?.map((field) => ({ field: field.name, value: '' })) || [] });
       setAddVisible(false);
       setImportVisible(false);
       loadProjects(page, pageSize, true);
@@ -248,7 +254,7 @@ export function Boms (props) {
       const { data } = response;
     }
     else {
-      console.log('failed to save project');
+      console.debug('failed to save project');
     }
     p.loading = false;
     setLastSavedProjectId(lastSavedProjectId);
@@ -306,6 +312,18 @@ export function Boms (props) {
     }
   };
 
+  const handleCustomFieldChange = (e, control, field, fieldDefinition) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (field) {
+      field.value = control.value;
+      const otherCustomFields = _.filter(project.customFields, x => x.field !== control.name);
+      setProject({...project, customFields: [ ...otherCustomFields, field ] });
+    } else {
+      console.error('field not found', control.name, project.customFields);
+    }
+  };
+
   const focusColumn = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -355,6 +373,14 @@ export function Boms (props) {
                 <Form.Input width={6} label={t('label.location', 'Location')} placeholder='New York' focus value={project.location} onChange={handleChange} name='location' />
                 <Form.Dropdown width={4} label={t('label.color', 'Color')} selection value={project.color} options={colors} onChange={handleChange} name='color' />
               </Form.Group>
+              <CustomFieldValues 
+                type={CustomFieldTypes.Project}
+                header={t('label.customFields', "Custom Fields")}
+                headerElement="h3"
+                customFieldDefinitions={systemSettings.customFields} 
+                customFieldValues={project.customFields} 
+                onChange={handleCustomFieldChange}
+              />
               <Button primary type='submit' icon><Icon name='save' /> <Trans i18nKey="button.save">Save</Trans></Button>
             </Form>
           </Segment>
@@ -421,7 +447,7 @@ export function Boms (props) {
                   <Table.Cell><Input type='text' className="inline-editable" transparent name='location' onFocus={focusColumn} onClick={focusColumn} onBlur={e => saveColumn(e, p)} onChange={(e, control) => handleInlineChange(e, control, p)} value={p.location || ''} fluid /></Table.Cell>
                   <Table.Cell>{p.partCount}</Table.Cell>
                   <Table.Cell>{p.pcbCount}</Table.Cell>
-                  <Table.Cell textAlign='center'><Button icon='edit' size='tiny' onClick={e => { e.preventDefault(); e.stopPropagation(); props.history(`/project/${p.name}`); }} title="Edit project" /> <Button icon='delete' size='tiny' onClick={e => confirmDeleteOpen(e, p)} title="Delete project" /></Table.Cell>
+                  <Table.Cell textAlign='center'><Button icon='edit' size='tiny' onClick={e => { e.preventDefault(); e.stopPropagation(); props.history(`/project/${encodeURIComponent(p.name)}`); }} title="Edit project" /> <Button icon='delete' size='tiny' onClick={e => confirmDeleteOpen(e, p)} title="Delete project" /></Table.Cell>
                 </Table.Row>
               )}
             </Table.Body>

@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import plugin from '@vitejs/plugin-react';
+import svgr from 'vite-plugin-svgr';
 import fs from 'fs';
 import path from 'path';
 import child_process from 'child_process';
@@ -35,15 +36,23 @@ if (!fs.existsSync(certFilePath) || !fs.existsSync(keyFilePath)) {
 
 const vitePort = 3000;
 const serverPort = 8090;
-const target = env.ASPNETCORE_HTTPS_PORT ? `https://localhost:${env.ASPNETCORE_HTTPS_PORT}` :
-  env.ASPNETCORE_URLS ? env.ASPNETCORE_URLS.split(';')[0] : `https://localhost:${serverPort}`;
+const protocol = env.ASPNETCORE_PROTOCOL ?? 'https'; // http or https
+const target = env.ASPNETCORE_HTTPS_PORT ? `${protocol}://localhost:${env.ASPNETCORE_HTTPS_PORT}` :
+  env.ASPNETCORE_URLS ? env.ASPNETCORE_URLS.split(';')[0] : `${protocol}://localhost:${serverPort}`;
+  
+// dump all environment variables to vite console
+//console.log('env', env);
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: '',
+  base: '/',
   plugins: [
-    //react(),
-    plugin()
+    plugin(),
+    svgr({ 
+      svgrOptions: {
+        include: "**/*.svg?react",
+      },
+    }),
   ],
   resolve: {
     alias: {
@@ -83,6 +92,23 @@ export default defineConfig({
           });
         },
       },
+      '/kicad-api/': {
+        target,
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('proxy error', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending Request to the Target:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
+          });
+        },
+      },
       '^/Authorization': {
         target,
         secure: false
@@ -105,5 +131,6 @@ export default defineConfig({
         assetFileNames: `assets/[name].[ext]`
       }
     }
-  }
+  },
+  publicDir: 'public'
 });

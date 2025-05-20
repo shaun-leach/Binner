@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using Binner.Common.Extensions;
 using Binner.Data;
 using Binner.Global.Common;
 using Binner.Model;
@@ -23,10 +24,10 @@ namespace Binner.Common.Services
     {
         private readonly IDbContextFactory<BinnerContext> _contextFactory;
         private readonly IMapper _mapper;
-        private readonly RequestContextAccessor _requestContext;
+        private readonly IRequestContextAccessor _requestContext;
         private readonly IConfiguration _configuration;
 
-        public AccountService(IDbContextFactory<BinnerContext> contextFactory, IMapper mapper, RequestContextAccessor requestContext, IConfigurationRoot configuration)
+        public AccountService(IDbContextFactory<BinnerContext> contextFactory, IMapper mapper, IRequestContextAccessor requestContext, IConfigurationRoot configuration)
         {
             _contextFactory = contextFactory;
             _mapper = mapper;
@@ -38,23 +39,27 @@ namespace Binner.Common.Services
             => context.Users
                 .AsQueryable();
 
-        public async Task<Account> GetAccountAsync()
+        public async Task<Account?> GetAccountAsync()
         {
             var userContext = _requestContext.GetUserContext();
             await using var context = await _contextFactory.CreateDbContextAsync();
             var entity = await GetAccountQueryable(context)
+                .Include(x => x.UserTokens)
                 .Where(x => x.UserId == userContext.UserId && x.OrganizationId == userContext.OrganizationId)
                 .AsSplitQuery()
                 .FirstOrDefaultAsync();
 
-            var model = _mapper.Map<Account>(entity);
             if (entity != null)
             {
+                // filter out tokens we want
+                entity.UserTokens = entity.UserTokens?.Where(x => x.TokenTypeId == Model.Authentication.TokenTypes.KiCadApiToken).ToList();
+                var model = _mapper.Map<Account>(entity);
                 model.PartsInventoryCount = await context.Parts.CountAsync(x => x.OrganizationId == userContext.OrganizationId);
                 model.PartTypesCount = await context.PartTypes.CountAsync(x => x.OrganizationId == userContext.OrganizationId);
+                return model;
             }
 
-            return model;
+            return null;
         }
 
         public async Task<UpdateAccountResponse> UpdateAccountAsync(Account account)
@@ -74,6 +79,24 @@ namespace Binner.Common.Services
                     IsSuccessful = false,
                     Message = $"Could not find user with id '{userContext.UserId}'",
                 };
+            }
+
+            if (entity.EmailAddress != account.EmailAddress)
+            {
+                // user wants to change login email/username. Make sure it's not already in the system.
+                var existingEmails = await GetAccountQueryable(context)
+                .Where(x => x.EmailAddress == account.EmailAddress && x.OrganizationId == userContext.OrganizationId)
+                .AsSplitQuery()
+                .FirstOrDefaultAsync();
+                if (existingEmails != null)
+                {
+                    return new UpdateAccountResponse
+                    {
+                        Account = _mapper.Map<Account>(entity),
+                        IsSuccessful = false,
+                        Message = $"A user with this email already exists.",
+                    };
+                }
             }
 
             if (!string.IsNullOrEmpty(account.NewPassword))
@@ -100,6 +123,7 @@ namespace Binner.Common.Services
                 entity.PasswordHash = PasswordHasher.GeneratePasswordHash(account.NewPassword).ToString();
             }
 
+            account.Tokens = null; // ensure no tokens can be updated
             entity = _mapper.Map(account, entity);
 
             await context.SaveChangesAsync();
@@ -137,6 +161,93 @@ namespace Binner.Common.Services
             {
                 throw new Exception("Unable to save profile image", ex);
             }
+        }
+
+        public async Task<Token?> CreateKiCadApiTokenAsync(string? tokenConfig)
+        {
+            var userContext = _requestContext.GetUserContext();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var entity = await context.UserTokens
+                .Where(x => x.UserId == userContext.UserId
+                    && x.OrganizationId == userContext.OrganizationId
+                    && x.TokenTypeId == Model.Authentication.TokenTypes.KiCadApiToken)
+                .AsSplitQuery()
+                .FirstOrDefaultAsync();
+
+            // delete any existing api token. user can only have 1
+            if (entity != null)
+            {
+                context.UserTokens.Remove(entity);
+            }
+
+            var newToken = new DataModel.UserToken()
+            {
+                Token = TokenGenerator.NewToken(),
+                TokenConfig = tokenConfig,
+                DateCreatedUtc = DateTime.UtcNow,
+                DateExpiredUtc = null,
+                TokenTypeId = Model.Authentication.TokenTypes.KiCadApiToken,
+                UserId = userContext.UserId,
+                OrganizationId = userContext.OrganizationId,
+                Ip = _requestContext.GetIp()
+            };
+            context.UserTokens.Add(newToken);
+            await context.SaveChangesAsync();
+
+            return _mapper.Map<DataModel.UserToken, Token>(newToken);
+        }
+
+        public async Task<bool> DeleteKiCadApiTokenAsync(string token)
+        {
+            var userContext = _requestContext.GetUserContext();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var entity = await context.UserTokens
+                .Where(x => x.UserId == userContext.UserId
+                    && x.OrganizationId == userContext.OrganizationId
+                    && x.TokenTypeId == Model.Authentication.TokenTypes.KiCadApiToken
+                    && x.Token == token)
+                .AsSplitQuery()
+                .FirstOrDefaultAsync();
+
+            if (entity == null) return false;
+
+            context.UserTokens.Remove(entity);
+            await context.SaveChangesAsync();
+
+            return true;
+        }
+
+        public async Task<Token?> GetTokenAsync(string token, Model.Authentication.TokenTypes? tokenType = null)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var apiToken = await context.UserTokens
+                .WhereIf(tokenType != null, x => x.TokenTypeId == tokenType)
+                .Where(x =>
+                    x.DateRevokedUtc == null
+                    && x.Token == token
+                    && (x.DateExpiredUtc == null || x.DateExpiredUtc > DateTime.UtcNow))
+                .FirstOrDefaultAsync();
+
+            if (apiToken != null)
+                return _mapper.Map<Token>(apiToken);
+
+            return null;
+        }
+
+        public async Task<bool> ValidateKiCadApiToken(string token)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var apiToken = await context.UserTokens
+                .FirstOrDefaultAsync(x =>
+                    x.TokenTypeId == Model.Authentication.TokenTypes.KiCadApiToken
+                    && x.DateRevokedUtc == null
+                    && x.Token == token
+                    && (x.DateExpiredUtc == null || x.DateExpiredUtc > DateTime.UtcNow));
+
+            if (apiToken != null)
+                return true;
+
+            return false;
         }
     }
 }

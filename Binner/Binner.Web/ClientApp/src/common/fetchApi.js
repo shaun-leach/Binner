@@ -145,6 +145,15 @@ export const getErrorsString = (response) => {
 };
 
 /**
+ * Get a raw text string from the response
+ * @param {*} response the response object
+ * @returns a string containing the message
+ */
+export const getText = async (response) => {
+  return await response.text();
+};
+
+/**
  * Handle a 401 unauthorized message from a fetch request.
  * This handles the process required to refresh jwt tokens when necessary and reissue the original request
  * @param {any} response the response object from fetch
@@ -263,7 +272,7 @@ const invokeErrorHandler = async (response) => {
     status: response.status,
     ...responseObject
   };
-  window.showErrorWindow(errorObject);
+  if (window.showErrorWindow) window.showErrorWindow(errorObject);
   // return the original response along with the responseObject that was read
   return Promise.reject(wrapReturn(responseObject, response));
 };
@@ -281,7 +290,7 @@ const invokeLicensingErrorHandler = async (response) => {
     status: response.status,
     ...responseObject
   };
-  window.showLicenseErrorWindow(errorObject);
+  if (window?.showLicenseErrorWindow) window.showLicenseErrorWindow(errorObject);
   // return the original response along with the responseObject that was read
   return Promise.reject(wrapReturn(responseObject, response));
 };

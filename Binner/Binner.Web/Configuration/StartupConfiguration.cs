@@ -1,5 +1,6 @@
 ﻿using Binner.Common;
 using Binner.Legacy.StorageProviders;
+using Binner.Model;
 using Binner.Model.Configuration;
 using Binner.Model.IO.Printing;
 using LightInject;
@@ -13,14 +14,14 @@ namespace Binner.Web.Configuration
 {
     public partial class StartupConfiguration
     {
-        const string ConfigFile = "appsettings.json";
+        private static readonly string _configFile = EnvironmentVarConstants.GetEnvOrDefault(EnvironmentVarConstants.Config, AppConstants.AppSettings);
 
         public static IConfigurationRoot Configure(IServiceContainer container, IServiceCollection services)
         {
             //var configPath = AppDomain.CurrentDomain.BaseDirectory;
             //var configPath = Environment.CurrentDirectory;
             var configPath = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule!.FileName) ?? string.Empty;
-            var configFile = Path.Combine(configPath, ConfigFile);
+            var configFile = Path.Combine(configPath, _configFile);
             Console.WriteLine($".Net Core bundle path: {AppContext.BaseDirectory}");
             Console.WriteLine($"Config file location: {configFile}");
             var configuration = Config.GetConfiguration(configFile);
@@ -31,6 +32,8 @@ namespace Binner.Web.Configuration
             var authenticationConfiguration = serviceConfiguration.Authentication;
             var storageProviderConfiguration = configuration.GetSection(nameof(StorageProviderConfiguration)).Get<StorageProviderConfiguration>();
             if (storageProviderConfiguration == null) throw new InvalidOperationException($"Could not load StorageProviderConfiguration from {configFile}, configuration file may be invalid or lacking read permissions!");
+            // inject configuration from environment variables (if set)
+            EnvironmentVarConstants.SetConfigurationFromEnvironment(storageProviderConfiguration);
             var binnerConfig = new BinnerFileStorageConfiguration(storageProviderConfiguration.ProviderConfiguration);
             var printerConfiguration = serviceConfiguration.PrinterConfiguration;
             var printerSettings = new PrinterSettings

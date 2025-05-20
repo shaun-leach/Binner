@@ -5,7 +5,7 @@ namespace Binner.Model
     /// <summary>
     /// A user defined project
     /// </summary>
-    public class Project : IEntity
+    public class Project : IEntity, ICustomFields
     {
         /// <summary>
         /// Primary key
@@ -47,6 +47,8 @@ namespace Binner.Model
         /// Creation date
         /// </summary>
         public DateTime DateModifiedUtc { get; set; } = DateTime.UtcNow;
+
+        public ICollection<CustomValue> CustomFields { get; set; } = new List<CustomValue>();
 
         /// <summary>
         /// Optional user id to associate

@@ -1,6 +1,10 @@
+# =============================
+# Binner Appveyor Build Script
+# =============================
 $project = ".\Binner\Binner.ReleaseBuild.sln"
 $releaseConfiguration = "Release"
 $framework = "net9.0"
+$versionTag = "v$env:APPVEYOR_BUILD_VERSION"
 
 Write-Host "Building $env:APPVEYOR_BUILD_VERSION" -ForegroundColor magenta
 Write-Host "Build Targets: $env:BUILDTARGETS" -ForegroundColor magenta
@@ -8,7 +12,7 @@ Write-Host "Build Targets: $env:BUILDTARGETS" -ForegroundColor magenta
 $sw = [Diagnostics.Stopwatch]::StartNew()
   Write-Host "Installing build dependencies..." -ForegroundColor green
   dotnet tool install --global dotnet-ef --version 9.0.2
-  Update-NodeJsInstallation 22.14.0 x64
+  Update-NodeJsInstallation 23.2.0 x64
   choco install -y innosetup
   npm install -g npm@latest
 
@@ -21,6 +25,8 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
   dotnet --version
   Write-Host "Tar" -ForegroundColor cyan
   tar --version
+  Write-Host "Docker" -ForegroundColor cyan
+  docker --version
 
   Write-Host "Configuring environment..." -ForegroundColor green
   $env:NODE_OPTIONS="--max_old_space_size=16384"
@@ -43,6 +49,14 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $sw.Stop()
 $sw.Elapsed | Select-Object @{n = "Elapsed"; e = { $_.Minutes, "m ", $_.Seconds, "s ", $_.Milliseconds, "ms " -join "" } }
 
+Write-Host "Running tests..." -ForegroundColor green
+$sw = [Diagnostics.Stopwatch]::StartNew()
+  dotnet test $project -c $releaseConfiguration --no-build
+  if ($LastExitCode -ne 0) { Write-Host "Exiting - error code '$LastExitCode'"; exit $LastExitCode }
+$sw.Stop()
+$sw.Elapsed | Select-Object @{n = "Elapsed"; e = { $_.Minutes, "m ", $_.Seconds, "s ", $_.Milliseconds, "ms " -join "" } }
+
+
 # publish specific profiles
 Write-Host "Publishing for each environment..." -ForegroundColor green
 
@@ -56,20 +70,22 @@ if ($env:BUILDTARGETS.Contains("#$buildEnv#")) {
   $sw.Elapsed | Select-Object @{n = "Elapsed"; e = { $_.Minutes, "m ", $_.Seconds, "s ", $_.Milliseconds, "ms " -join "" } }
 }
 
-Write-Host "Building the UI..." -ForegroundColor cyan
-$sw = [Diagnostics.Stopwatch]::StartNew()
-  cd .\Binner\Binner.Web\ClientApp
-  npm install
-  Write-Host "npm exit code: $LASTEXITCODE"
-  if ($LastExitCode -ne 0) { Write-Host "Exiting - error code '$LastExitCode'"; exit $LastExitCode }
-  npm run build
-  Write-Host "npm exit code: $LASTEXITCODE"
-  if ($LastExitCode -ne 0) { Write-Host "Exiting - error code '$LastExitCode'"; exit $LastExitCode }
-  cd ..\..\..\
+if ($env:BUILDTARGETS.Contains("#ui#")) {
+  Write-Host "Building the UI..." -ForegroundColor cyan
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+    cd .\Binner\Binner.Web\ClientApp
+    npm install
+    Write-Host "npm exit code: $LASTEXITCODE"
+    if ($LastExitCode -ne 0) { Write-Host "Exiting - error code '$LastExitCode'"; exit $LastExitCode }
+    npm run build
+    Write-Host "npm exit code: $LASTEXITCODE"
+    if ($LastExitCode -ne 0) { Write-Host "Exiting - error code '$LastExitCode'"; exit $LastExitCode }
+    cd ..\..\..\
 
-  robocopy .\Binner\Binner.Web\ClientApp\build .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\ClientApp\build /s
-$sw.Stop()
-$sw.Elapsed | Select-Object @{n = "Elapsed"; e = { $_.Minutes, "m ", $_.Seconds, "s ", $_.Milliseconds, "ms " -join "" } }
+    robocopy .\Binner\Binner.Web\ClientApp\build .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\ClientApp\build /s
+  $sw.Stop()
+  $sw.Elapsed | Select-Object @{n = "Elapsed"; e = { $_.Minutes, "m ", $_.Seconds, "s ", $_.Milliseconds, "ms " -join "" } }
+}
 
 $buildEnv = "linux-x64"
 if ($env:BUILDTARGETS.Contains("#$buildEnv#")) {
@@ -130,6 +146,8 @@ if ($env:BUILDTARGETS.Contains("#$buildEnv#")) {
   Move-Item -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\nlog.Unix.config -Destination .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\nlog.config
   if (!$?) { exit -1  }
   Copy-Item -Force -Path .\Binner\scripts\unix\* -Destination .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish
+  New-Item -ItemType Directory -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\db
+  New-Item -ItemType Directory -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\logs
 }
 
 $buildEnv = "linux-arm"
@@ -139,6 +157,8 @@ if ($env:BUILDTARGETS.Contains("#$buildEnv#")) {
   Move-Item -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\nlog.Unix.config -Destination .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\nlog.config
   if (!$?) { exit -1  }
   Copy-Item -Force -Path .\Binner\scripts\unix\* -Destination .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish
+  New-Item -ItemType Directory -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\db
+  New-Item -ItemType Directory -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\logs
 }
 
 $buildEnv = "linux-arm64"
@@ -148,6 +168,8 @@ if ($env:BUILDTARGETS.Contains("#$buildEnv#")) {
   Move-Item -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\nlog.Unix.config -Destination .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\nlog.config
   if (!$?) { exit -1  }
   Copy-Item -Force -Path .\Binner\scripts\unix\* -Destination .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish
+  New-Item -ItemType Directory -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\db
+  New-Item -ItemType Directory -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\logs
 }
 
 $buildEnv = "osx-x64"
@@ -158,6 +180,8 @@ if ($env:BUILDTARGETS.Contains("#$buildEnv#")) {
   if (!$?) { exit -1  }
   Copy-Item -Force -Path .\Binner\scripts\unix\* -Destination .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish
   if (!$?) { exit -1  }
+  New-Item -ItemType Directory -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\db
+  New-Item -ItemType Directory -Force -Path .\Binner\Binner.Web\bin\$releaseConfiguration\$framework\$buildEnv\publish\logs
 }
 
 # build installers
@@ -205,5 +229,5 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 
   # rename these artifacts to include the build version number
   Get-ChildItem .\*.targz -recurse | % { Push-AppveyorArtifact $_.FullName -FileName "$($_.Basename)-$env:APPVEYOR_BUILD_VERSION.tar.gz" }
-  $sw.Stop()
-  $sw.Elapsed | Select-Object @{n = "Elapsed"; e = { $_.Minutes, "m ", $_.Seconds, "s ", $_.Milliseconds, "ms " -join "" } }
+$sw.Stop()
+$sw.Elapsed | Select-Object @{n = "Elapsed"; e = { $_.Minutes, "m ", $_.Seconds, "s ", $_.Milliseconds, "ms " -join "" } }

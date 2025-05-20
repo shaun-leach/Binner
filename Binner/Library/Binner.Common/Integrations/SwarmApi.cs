@@ -1,15 +1,12 @@
 ﻿using Binner.Common.Integrations.Models;
-using Binner.Common.Services;
-using Binner.Global.Common;
 using Binner.Model.Configuration.Integrations;
 using Binner.SwarmApi;
 using Binner.SwarmApi.Request;
-using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace Binner.Common.Integrations
@@ -17,29 +14,24 @@ namespace Binner.Common.Integrations
     public class SwarmApi : IIntegrationApi
     {
         public string Name => "Swarm";
+        private readonly ILogger<SwarmApi> _logger;
         private readonly SwarmConfiguration _configuration;
-        private readonly ICredentialService _credentialService;
-        private readonly IHttpContextAccessor _httpContextAccessor;
-        private readonly RequestContextAccessor _requestContext;
         private readonly SwarmApiClient _client;
-        private readonly ManualResetEvent _manualResetEvent = new ManualResetEvent(false);
 
         public bool IsEnabled => _configuration.Enabled;
 
         public IApiConfiguration Configuration => _configuration;
 
-        public SwarmApi(SwarmConfiguration configuration, ICredentialService credentialService, IHttpContextAccessor httpContextAccessor, RequestContextAccessor requestContext)
+        public SwarmApi(ILogger<SwarmApi> logger, SwarmConfiguration configuration)
         {
+            _logger = logger;
             _configuration = configuration;
-            _credentialService = credentialService;
-            _httpContextAccessor = httpContextAccessor;
             var swarmApiConfiguration =
                 new SwarmApiConfiguration(_configuration.ApiKey ?? string.Empty, new Uri(_configuration.ApiUrl))
                 {
                     Timeout = _configuration.Timeout
                 };
             _client = new SwarmApiClient(swarmApiConfiguration);
-            _requestContext = requestContext;
         }
 
         public Task<IApiResponse> SearchAsync(string partNumber, int recordCount = 25, Dictionary<string, string>? additionalOptions = null) => SearchAsync(partNumber, string.Empty, string.Empty, recordCount, additionalOptions);
@@ -112,6 +104,10 @@ namespace Binner.Common.Integrations
             {
                 return ApiResponse.Create($"Api request timed out: {ex.Message}", nameof(SwarmApi));
             }
+        }
+
+        public void Dispose()
+        {
         }
     }
 }

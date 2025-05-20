@@ -19,7 +19,8 @@ namespace Binner.Web.Middleware
             _next = next;
             try
             {
-                _buildVersion = Assembly.GetExecutingAssembly()!.GetName()!.Version ?? new Version();
+                var assembly = Assembly.GetExecutingAssembly();
+                _buildVersion = assembly?.GetName()?.Version ?? new Version(1, 0, 0, 0);
             }
             catch (Exception)
             {
@@ -31,7 +32,7 @@ namespace Binner.Web.Middleware
         {
             context.Response.OnStarting(state =>
             {
-                context.Response.Headers.Add("X-Version", $"{_buildVersion.ToString(3)}");
+                context.Response.Headers.Append("X-Version", $"{_buildVersion.ToString(3)}");
                 return Task.CompletedTask;
             }, context);
 

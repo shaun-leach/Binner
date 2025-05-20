@@ -2,6 +2,7 @@
 using Binner.Global.Common;
 using Binner.Model;
 using Binner.Model.Configuration;
+using NPOI.HPSF;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,10 +14,10 @@ namespace Binner.Common.Services
     public class StoredFileService : IStoredFileService
     {
         private IStorageProvider _storageProvider;
-        private RequestContextAccessor _requestContext;
+        private IRequestContextAccessor _requestContext;
         private StorageProviderConfiguration _configuration;
 
-        public StoredFileService(IStorageProvider storageProvider, RequestContextAccessor requestContextAccessor, StorageProviderConfiguration configuration)
+        public StoredFileService(IStorageProvider storageProvider, IRequestContextAccessor requestContextAccessor, StorageProviderConfiguration configuration)
         {
             _storageProvider = storageProvider;
             _requestContext = requestContextAccessor;
@@ -25,8 +26,8 @@ namespace Binner.Common.Services
 
         public async Task<ICollection<StoredFile>> UploadFilesAsync(ICollection<UserUploadedFile> files)
         {
-            if (string.IsNullOrEmpty(_configuration.UserUploadedFilesPath))
-                throw new BinnerConfigurationException($"No 'StorageProviderConfiguration.UserUploadedFilesPath' value is provided in the configuration. Please set the path you would like to store files in appsettings.json.");
+            if (string.IsNullOrEmpty(SystemPaths.GetUserFilesPath(_configuration)))
+                throw new BinnerConfigurationException($"No 'StorageProviderConfiguration.UserUploadedFilesPath' value is provided in the configuration. Please set the path you would like to store files in application configuration file.");
             if (!files.Any()) return new List<StoredFile>();
 
             var userContext = _requestContext.GetUserContext();
@@ -84,27 +85,35 @@ namespace Binner.Common.Services
 
         public string GetStoredFilePath(StoredFileType storedFileType)
         {
-            if (string.IsNullOrEmpty(_configuration.UserUploadedFilesPath))
+            var userFilesPath = SystemPaths.GetUserFilesPath(_configuration);
+            if (string.IsNullOrEmpty(userFilesPath))
                 throw new Exception("No UserUploadedFilesPath set in the configuration");
-            return Path.Combine(_configuration.UserUploadedFilesPath, storedFileType.ToString());
+            return Path.Combine(userFilesPath, storedFileType.ToString());
         }
 
-        private string GenerateFilename(string originalFilename, Part part, StoredFileType storedFileType)
+        public string GenerateFilename(string originalFilename, Part part, StoredFileType storedFileType)
         {
             if (string.IsNullOrEmpty(part.PartNumber))
                 throw new Exception("No part number specified");
             var extension = Path.GetExtension(originalFilename);
-            var filename = $"{part.PartNumber.Replace("/", "_")}-{storedFileType}{extension}";
+            var filename = MakeSafeFilename($"{part.PartNumber.Replace("/", "_")}-{storedFileType}{extension}");
             var path = GetStoredFilePath(storedFileType);
             var pathToFile = Path.Combine(path, filename);
             var i = 1;
             while (File.Exists(pathToFile) && i < 10000)
             {
-                filename = $"{part.PartNumber.Replace("/", "_")}-{storedFileType}-{i}{extension}";
+                filename = MakeSafeFilename($"{part.PartNumber.Replace("/", "_")}-{storedFileType}-{i}{extension}");
                 pathToFile = Path.Combine(path, filename);
                 i++;
             }
             return pathToFile;
+        }
+
+        internal string MakeSafeFilename(string filename)
+        {
+            // strip invalid characters from filenames
+            var invalidFileNameChars = Path.GetInvalidFileNameChars();
+            return new string(filename.Where(ch => !invalidFileNameChars.Contains(ch)).ToArray());
         }
 
         public async Task<StoredFile> AddStoredFileAsync(StoredFile storedFile)

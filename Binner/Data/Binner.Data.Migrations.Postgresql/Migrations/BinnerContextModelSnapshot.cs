@@ -23,6 +23,92 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Binner.Data.Model.CustomField", b =>
+                {
+                    b.Property<long>("CustomFieldId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("CustomFieldId"));
+
+                    b.Property<int>("CustomFieldTypeId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("CustomFieldId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("CustomFields", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.CustomFieldValue", b =>
+                {
+                    b.Property<long>("CustomFieldValueId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("CustomFieldValueId"));
+
+                    b.Property<long>("CustomFieldId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("CustomFieldTypeId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("RecordId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("CustomFieldValueId");
+
+                    b.HasIndex("CustomFieldId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("CustomFieldValues", "dbo");
+                });
+
             modelBuilder.Entity("Binner.Data.Model.Label", b =>
                 {
                     b.Property<int>("LabelId")
@@ -148,6 +234,9 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.Property<string>("AccessToken")
                         .HasColumnType("text");
 
+                    b.Property<string>("ApiSettings")
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("DateCreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -183,6 +272,8 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.HasKey("OAuthCredentialId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("Provider", "UserId", "OrganizationId");
 
                     b.ToTable("OAuthCredentials", "dbo");
                 });
@@ -245,6 +336,114 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("OAuthRequests", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistory", b =>
+                {
+                    b.Property<long>("OrderImportHistoryId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("OrderImportHistoryId"));
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<string>("Invoice")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Packlist")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SalesOrder")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Supplier")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("OrderImportHistoryId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("OrderImportHistories", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistoryLineItem", b =>
+                {
+                    b.Property<long>("OrderImportHistoryLineItemId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("OrderImportHistoryLineItemId"));
+
+                    b.Property<double>("Cost")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("CustomerReference")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Manufacturer")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ManufacturerPartNumber")
+                        .HasColumnType("text");
+
+                    b.Property<long>("OrderImportHistoryId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("PartId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PartNumber")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Quantity")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Supplier")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("OrderImportHistoryLineItemId");
+
+                    b.HasIndex("OrderImportHistoryId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("OrderImportHistoryLineItems", "dbo");
                 });
 
             modelBuilder.Entity("Binner.Data.Model.Organization", b =>
@@ -384,6 +583,9 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.Property<int?>("UserId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
                     b.HasKey("PartId");
 
                     b.HasIndex("ProjectId");
@@ -413,6 +615,88 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.HasIndex("PartTypeId", "UserId");
 
                     b.ToTable("Parts", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.PartScanHistory", b =>
+                {
+                    b.Property<long>("PartScanHistoryId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("PartScanHistoryId"));
+
+                    b.Property<int>("BarcodeType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CountryOfOrigin")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Crc")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("DateCreatedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<DateTime>("DateModifiedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("getutcdate()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Invoice")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LotCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ManufacturerPartNumber")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Mid")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Packlist")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("PartId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RawScan")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SalesOrder")
+                        .HasColumnType("text");
+
+                    b.Property<int>("ScannedLabelType")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Supplier")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SupplierPartNumber")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("PartScanHistoryId");
+
+                    b.HasIndex("PartId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PartScanHistories", "dbo");
                 });
 
             modelBuilder.Entity("Binner.Data.Model.PartSupplier", b =>
@@ -490,7 +774,13 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("getutcdate()");
 
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
                     b.Property<string>("Icon")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Keywords")
                         .HasColumnType("text");
 
                     b.Property<string>("Name")
@@ -501,6 +791,12 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
 
                     b.Property<long?>("ParentPartTypeId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("ReferenceDesignator")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SymbolId")
+                        .HasColumnType("text");
 
                     b.Property<int?>("UserId")
                         .HasColumnType("integer");
@@ -1358,6 +1654,9 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("TokenConfig")
+                        .HasColumnType("text");
+
                     b.Property<int>("TokenTypeId")
                         .HasColumnType("integer");
 
@@ -1369,6 +1668,34 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("UserTokens", "dbo");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.CustomField", b =>
+                {
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("CustomFields")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.CustomFieldValue", b =>
+                {
+                    b.HasOne("Binner.Data.Model.CustomField", "CustomField")
+                        .WithMany("CustomFieldValues")
+                        .HasForeignKey("CustomFieldId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("CustomFieldValues")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CustomField");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Binner.Data.Model.Label", b =>
@@ -1402,6 +1729,34 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistory", b =>
+                {
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("OrderImportHistory")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistoryLineItem", b =>
+                {
+                    b.HasOne("Binner.Data.Model.OrderImportHistory", "OrderImportHistory")
+                        .WithMany("OrderImportHistoryLineItems")
+                        .HasForeignKey("OrderImportHistoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("OrderImportHistoryLineItems")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("OrderImportHistory");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Binner.Data.Model.Part", b =>
                 {
                     b.HasOne("Binner.Data.Model.PartType", "PartType")
@@ -1423,6 +1778,23 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.Navigation("PartType");
 
                     b.Navigation("Project");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Binner.Data.Model.PartScanHistory", b =>
+                {
+                    b.HasOne("Binner.Data.Model.Part", "Part")
+                        .WithMany("PartScanHistories")
+                        .HasForeignKey("PartId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Binner.Data.Model.User", "User")
+                        .WithMany("PartScanHistories")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Part");
 
                     b.Navigation("User");
                 });
@@ -1676,13 +2048,25 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Binner.Data.Model.CustomField", b =>
+                {
+                    b.Navigation("CustomFieldValues");
+                });
+
             modelBuilder.Entity("Binner.Data.Model.LabelTemplate", b =>
                 {
                     b.Navigation("Labels");
                 });
 
+            modelBuilder.Entity("Binner.Data.Model.OrderImportHistory", b =>
+                {
+                    b.Navigation("OrderImportHistoryLineItems");
+                });
+
             modelBuilder.Entity("Binner.Data.Model.Part", b =>
                 {
+                    b.Navigation("PartScanHistories");
+
                     b.Navigation("PartSuppliers");
 
                     b.Navigation("ProjectPartAssignments");
@@ -1727,9 +2111,19 @@ namespace Binner.Data.Migrations.Postgresql.Migrations
 
             modelBuilder.Entity("Binner.Data.Model.User", b =>
                 {
+                    b.Navigation("CustomFieldValues");
+
+                    b.Navigation("CustomFields");
+
                     b.Navigation("OAuthCredentials");
 
                     b.Navigation("OAuthRequests");
+
+                    b.Navigation("OrderImportHistory");
+
+                    b.Navigation("OrderImportHistoryLineItems");
+
+                    b.Navigation("PartScanHistories");
 
                     b.Navigation("PartSuppliers");
 

@@ -3,15 +3,15 @@ using Binner.Common.Integrations.Models;
 using Binner.Model.Configuration;
 using Binner.Model.Configuration.Integrations;
 using Binner.Model.Integrations.Tme;
-using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
-using System.Net.WebSockets;
+using System.Runtime.Caching;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -23,10 +23,13 @@ namespace Binner.Common.Integrations
         public string Name => "TME";
         public const string BasePath = "/";
         public const string DefaultApiUrl = "https://api.tme.eu/";
+        private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(30);
+        private readonly ILogger<TmeApi> _logger;
         private readonly TmeConfiguration _configuration;
         private readonly LocaleConfiguration _localeConfiguration;
-        private readonly HttpClient _client;
-        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IApiHttpClient _client;
+        private readonly IApiHttpClientFactory _clientFactory;
+        private readonly MemoryCache _cache = new MemoryCache("TMEStaticCache");
 
         public bool IsEnabled => _configuration.Enabled;
 
@@ -45,17 +48,15 @@ namespace Binner.Common.Integrations
         /// </summary>
         /// <param name="configuration"></param>
         /// <param name="localeConfiguration"></param>
-        /// <param name="httpContextAccessor"></param>
         /// <exception cref="ArgumentNullException"></exception>
-        public TmeApi(TmeConfiguration configuration, LocaleConfiguration localeConfiguration, IHttpContextAccessor httpContextAccessor)
+        public TmeApi(ILogger<TmeApi> logger, TmeConfiguration configuration, LocaleConfiguration localeConfiguration, IApiHttpClientFactory clientFactory)
         {
+            _logger = logger;
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _localeConfiguration = localeConfiguration ?? throw new ArgumentNullException(nameof(localeConfiguration));
-            _httpContextAccessor = httpContextAccessor;
-            _client = new HttpClient();
-            _client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-            // API service is available only via the TLSv1.2 protocol. This information can be found on https://developers.tme.eu/en/signin 
-            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+            _clientFactory = clientFactory;
+            _client = clientFactory.Create();
+            _client.AddHeader(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
         }
 
         public Task<IApiResponse> GetOrderAsync(string orderId, Dictionary<string, string>? additionalOptions = null)
@@ -117,8 +118,11 @@ namespace Binner.Common.Integrations
                 return result.ApiResponse;
             }
 
-            var resultString = await response.Content.ReadAsStringAsync();
-            var results = JsonConvert.DeserializeObject<TmeResponse<ProductSearchResponse>>(resultString, _serializerSettings) ?? new();
+            var responseJson = await response.Content.ReadAsStringAsync();
+            // workaround fix for TME's API producing invalid/mutating json, tracked issue #360 created on their end (4/25/2025)
+            responseJson = responseJson.Replace("\"CategoryList\":[]", "\"CategoryList\":{}");
+
+            var results = JsonConvert.DeserializeObject<TmeResponse<ProductSearchResponse>>(responseJson, _serializerSettings) ?? new();
             return new ApiResponse(results, nameof(TmeApi));
         }
 
@@ -163,8 +167,8 @@ namespace Binner.Common.Integrations
                 return result.ApiResponse;
             }
 
-            var resultString = await response.Content.ReadAsStringAsync();
-            var results = JsonConvert.DeserializeObject<TmeResponse<ProductFilesResponse>>(resultString, _serializerSettings) ?? new();
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var results = JsonConvert.DeserializeObject<TmeResponse<ProductFilesResponse>>(responseJson, _serializerSettings) ?? new();
             return new ApiResponse(results, nameof(TmeApi));
         }
 
@@ -211,8 +215,8 @@ namespace Binner.Common.Integrations
                 return result.ApiResponse;
             }
 
-            var resultString = await response.Content.ReadAsStringAsync();
-            var results = JsonConvert.DeserializeObject<TmeResponse<PriceListResponse>>(resultString, _serializerSettings) ?? new();
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var results = JsonConvert.DeserializeObject<TmeResponse<PriceListResponse>>(responseJson, _serializerSettings) ?? new();
             return new ApiResponse(results, nameof(TmeApi));
         }
 
@@ -246,15 +250,15 @@ namespace Binner.Common.Integrations
                 return result.ApiResponse;
             }
 
-            var resultString = await response.Content.ReadAsStringAsync();
+            var responseJson = await response.Content.ReadAsStringAsync();
             if (isTree)
             {
-                var results = JsonConvert.DeserializeObject<TmeResponse<CategoryTreeResponse>>(resultString, _serializerSettings) ?? new();
+                var results = JsonConvert.DeserializeObject<TmeResponse<CategoryTreeResponse>>(responseJson, _serializerSettings) ?? new();
                 return new ApiResponse(results, nameof(TmeApi));
             }
             else
             {
-                var results = JsonConvert.DeserializeObject<TmeResponse<CategoryResponse>>(resultString, _serializerSettings) ?? new();
+                var results = JsonConvert.DeserializeObject<TmeResponse<CategoryResponse>>(responseJson, _serializerSettings) ?? new();
 
 #pragma warning disable CS0162 // Unreachable code detected
                 // produce a hashtable of all categories, which will be statically compiled into the StaticCategories class.
@@ -274,6 +278,36 @@ namespace Binner.Common.Integrations
 
                 return new ApiResponse(results, nameof(TmeApi));
             }
+        }
+
+        public async Task<string> ResolveExternalLinkAsync(TmeDocument document)
+        {
+            if (_configuration.ResolveExternalLinks)
+            {
+                var cachekey = $"LNK-{document.DocumentUrl}";
+                if (document.DocumentType == DocumentTypes.LNK)
+                {
+                    var cachedValue = _cache.GetCacheItem(cachekey);
+                    if (cachedValue != null && cachedValue.Value is string) return (string)cachedValue.Value;
+
+                    var uri = new Uri($"https:{document.DocumentUrl}");
+                    var client = _clientFactory.Create();
+                    client.SetTimeout(TimeSpan.FromSeconds(5));
+                    client.ClearHeaders();
+                    Activity.Current = null; // remove traceparent header (thanks .net)
+                    client.AddHeader("Host", uri.Host);
+                    client.AddHeader("User-Agent", "Binner/1.0");
+                    var requestMessage = new HttpRequestMessage(HttpMethod.Get, uri); // tme omits the protocol from the url
+                    var response = await client.SendAsync(requestMessage);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var responseJson = await response.Content.ReadAsStringAsync();
+                        _cache.Add(cachekey, responseJson, DateTimeOffset.UtcNow.Add(CacheLifetime));
+                        return responseJson;
+                    }
+                }
+            }
+            return string.Empty;
         }
 
         private async Task<FormUrlEncodedContent> BuildApiParamsAsync(Uri uri, string country, string language, Dictionary<string, object> parameters)
@@ -402,6 +436,14 @@ namespace Binner.Common.Integrations
             if (string.IsNullOrEmpty(_configuration.ApiKey)) throw new BinnerConfigurationException($"{nameof(TmeConfiguration)} must specify a ApiKey!");
             if (string.IsNullOrEmpty(_configuration.ApiUrl)) throw new BinnerConfigurationException($"{nameof(TmeConfiguration)} must specify a ApiUrl!");
         }
+
+        public void Dispose()
+        {
+            _client.Dispose();
+        }
+
+        public override string ToString()
+            => $"{nameof(TmeApi)}";
 
         public class TmeUnauthorizedException : Exception
         {

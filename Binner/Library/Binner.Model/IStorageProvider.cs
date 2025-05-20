@@ -60,7 +60,7 @@ namespace Binner.Model
         /// <param name="credential"></param>
         /// <param name="userContext">The user performing the operation</param>
         /// <returns></returns>
-        Task<OAuthCredential> SaveOAuthCredentialAsync(OAuthCredential credential, IUserContext? userContext);
+        Task<OAuthCredential?> SaveOAuthCredentialAsync(OAuthCredential credential, IUserContext? userContext);
 
         /// <summary>
         /// Remove an oAuth Credential
@@ -84,7 +84,7 @@ namespace Binner.Model
         /// <param name="part"></param>
         /// <param name="userContext">The user performing the operation</param>
         /// <returns></returns>
-        Task<Part> UpdatePartAsync(Part part, IUserContext? userContext);
+        Task<Part?> UpdatePartAsync(Part part, IUserContext? userContext);
 
         /// <summary>
         /// Get a part by its internal id
@@ -152,12 +152,20 @@ namespace Binner.Model
         Task<PartType?> GetPartTypeAsync(long partTypeId, IUserContext? userContext);
 
         /// <summary>
+        /// Get an existing part type
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<PartType?> GetPartTypeAsync(string name, IUserContext? userContext);
+
+        /// <summary>
         /// Update an existing part type
         /// </summary>
         /// <param name="partType"></param>
         /// <param name="userContext">The user performing the operation</param>
         /// <returns></returns>
-        Task<PartType> UpdatePartTypeAsync(PartType partType, IUserContext? userContext);
+        Task<PartType?> UpdatePartTypeAsync(PartType partType, IUserContext? userContext);
 
         /// <summary>
         /// Delete an existing partType
@@ -175,12 +183,20 @@ namespace Binner.Model
         Task<ICollection<PartType>> GetPartTypesAsync(IUserContext? userContext);
 
         /// <summary>
+        /// Get all of the part types
+        /// </summary>
+        /// <param name="filterEmpty">True to filter empty part type categories (no parts assigned)</param>
+        /// <param name="userContext">The user performing the operation</param>
+        /// <returns></returns>
+        Task<ICollection<PartType>> GetPartTypesAsync(bool filterEmpty, IUserContext? userContext);
+
+        /// <summary>
         /// Create a new user defined project
         /// </summary>
         /// <param name="project"></param>
         /// <param name="userContext">The user performing the operation</param>
         /// <returns></returns>
-        Task<Project> AddProjectAsync(Project project, IUserContext? userContext);
+        Task<Project?> AddProjectAsync(Project project, IUserContext? userContext);
 
         /// <summary>
         /// Get an existing user defined project
@@ -212,7 +228,7 @@ namespace Binner.Model
         /// <param name="project"></param>
         /// <param name="userContext">The user performing the operation</param>
         /// <returns></returns>
-        Task<Project> UpdateProjectAsync(Project project, IUserContext? userContext);
+        Task<Project?> UpdateProjectAsync(Project project, IUserContext? userContext);
 
         /// <summary>
         /// Update an existing user defined project
@@ -453,7 +469,7 @@ namespace Binner.Model
         /// <param name="assignment"></param>
         /// <param name="userContext"></param>
         /// <returns></returns>
-        Task<ProjectPartAssignment> UpdateProjectPartAssignmentAsync(ProjectPartAssignment assignment, IUserContext? userContext);
+        Task<ProjectPartAssignment?> UpdateProjectPartAssignmentAsync(ProjectPartAssignment assignment, IUserContext? userContext);
 
         /// <summary>
         /// Remove a part from a Project BOM
@@ -493,7 +509,7 @@ namespace Binner.Model
         /// <param name="assignment"></param>
         /// <param name="userContext"></param>
         /// <returns></returns>
-        Task<ProjectPcbAssignment> UpdateProjectPcbAssignmentAsync(ProjectPcbAssignment assignment, IUserContext? userContext);
+        Task<ProjectPcbAssignment?> UpdateProjectPcbAssignmentAsync(ProjectPcbAssignment assignment, IUserContext? userContext);
 
         /// <summary>
         /// Remove a pcb from a Project BOM
@@ -502,6 +518,62 @@ namespace Binner.Model
         /// <param name="userContext"></param>
         /// <returns></returns>
         Task<bool> RemoveProjectPcbAssignmentAsync(ProjectPcbAssignment assignment, IUserContext? userContext);
+
+        /// <summary>
+        /// Get a part scan history record
+        /// </summary>
+        /// <param name="partScanHistory"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<PartScanHistory?> GetPartScanHistoryAsync(PartScanHistory partScanHistory, IUserContext? userContext);
+
+        /// <summary>
+        /// Get a part scan history record by it's rawscan field
+        /// </summary>
+        /// <param name="rawScan"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<PartScanHistory?> GetPartScanHistoryAsync(string rawScan, IUserContext? userContext);
+
+        /// <summary>
+        /// Get a part scan history record by its CRC of the RawScan field
+        /// </summary>
+        /// <param name="rawScanCrc"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<PartScanHistory?> GetPartScanHistoryAsync(int rawScanCrc, IUserContext? userContext);
+
+        /// <summary>
+        /// Get a part scan history record
+        /// </summary>
+        /// <param name="partScanHistoryId"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<PartScanHistory?> GetPartScanHistoryAsync(long partScanHistoryId, IUserContext? userContext);
+
+        /// <summary>
+        /// Add a new part scan history record
+        /// </summary>
+        /// <param name="partScanHistory"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<PartScanHistory> AddPartScanHistoryAsync(PartScanHistory partScanHistory, IUserContext? userContext);
+
+        /// <summary>
+        /// Update an existing part scan history record
+        /// </summary>
+        /// <param name="partScanHistory"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<PartScanHistory?> UpdatePartScanHistoryAsync(PartScanHistory partScanHistory, IUserContext? userContext);
+
+        /// <summary>
+        /// Delete an existing part scan history record
+        /// </summary>
+        /// <param name="partScanHistory"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<bool> DeletePartScanHistoryAsync(PartScanHistory partScanHistory, IUserContext? userContext);
 
         /// <summary>
         /// Create a new part supplier
@@ -533,7 +605,7 @@ namespace Binner.Model
         /// <param name="partSupplier"></param>
         /// <param name="userContext">The user performing the operation</param>
         /// <returns></returns>
-        Task<PartSupplier> UpdatePartSupplierAsync(PartSupplier partSupplier, IUserContext? userContext);
+        Task<PartSupplier?> UpdatePartSupplierAsync(PartSupplier partSupplier, IUserContext? userContext);
 
         /// <summary>
         /// Delete existing part supplier
@@ -542,5 +614,100 @@ namespace Binner.Model
         /// <param name="userContext">The user performing the operation</param>
         /// <returns></returns>
         Task<bool> DeletePartSupplierAsync(PartSupplier partSupplier, IUserContext? userContext);
+
+        /// <summary>
+        /// Get an order import history record
+        /// </summary>
+        /// <param name="orderImportHistory"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<OrderImportHistory?> GetOrderImportHistoryAsync(OrderImportHistory orderImportHistory, bool includeChildren, IUserContext? userContext);
+
+        /// <summary>
+        /// Get an order import history record
+        /// </summary>
+        /// <param name="orderImportHistoryId"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<OrderImportHistory?> GetOrderImportHistoryAsync(long orderImportHistoryId, bool includeChildren, IUserContext? userContext);
+
+        /// <summary>
+        /// Get an order import history record
+        /// </summary>
+        /// <param name="orderImportHistoryId"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<OrderImportHistory?> GetOrderImportHistoryAsync(string orderNumber, string supplier, bool includeChildren, IUserContext? userContext);
+
+        /// <summary>
+        /// Add a new order import history record
+        /// </summary>
+        /// <param name="partScanHistory"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<OrderImportHistory> AddOrderImportHistoryAsync(OrderImportHistory partScanHistory, IUserContext? userContext);
+
+        /// <summary>
+        /// Add a new order import history line item
+        /// </summary>
+        /// <param name="orrderImportHistoryLineItem"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<OrderImportHistoryLineItem> AddOrderImportHistoryLineItemAsync(OrderImportHistoryLineItem orrderImportHistoryLineItem, IUserContext? userContext);
+
+        /// <summary>
+        /// Update an existing order import history record
+        /// </summary>
+        /// <param name="partScanHistory"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<OrderImportHistory?> UpdateOrderImportHistoryAsync(OrderImportHistory partScanHistory, IUserContext? userContext);
+
+        /// <summary>
+        /// Delete an existing order import history record
+        /// </summary>
+        /// <param name="partScanHistory"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<bool> DeleteOrderImportHistoryAsync(OrderImportHistory partScanHistory, IUserContext? userContext);
+
+        /// <summary>
+        /// Given a list of part numbers, get the local part ids if they match
+        /// </summary>
+        /// <param name="partNumbers"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<IDictionary<string, long>> GetPartIdsFromManufacturerPartNumbersAsync(ICollection<string> partNumbers, IUserContext? userContext);
+
+        /// <summary>
+        /// Get all parts that belong to a part type
+        /// </summary>
+        /// <param name="partType"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<ICollection<Part>> GetPartsByPartTypeAsync(PartType partType, IUserContext? userContext);
+
+        /// <summary>
+        /// Get the custom fields defined
+        /// </summary>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<ICollection<CustomField>> GetCustomFieldsAsync(IUserContext? userContext);
+
+        /// <summary>
+        /// Get the custom field values for a record
+        /// </summary>
+        /// <param name="customFieldType"></param>
+        /// <param name="recordId"></param>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        Task<ICollection<CustomValue>> GetCustomFieldsAsync(CustomFieldTypes customFieldType, long recordId, IUserContext? userContext);
+
+        /// <summary>
+        /// Perform a save of custom fields. All items will be added/updated/removed based on the values passed in.
+        /// </summary>
+        /// <param name="customFields"></param>
+        /// <returns></returns>
+        Task<ICollection<CustomField>> SaveCustomFieldsAsync(ICollection<CustomField> customFields, IUserContext? userContext);
     }
 }

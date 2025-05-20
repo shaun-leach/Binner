@@ -26,6 +26,7 @@ namespace Binner.Common.MappingProfiles
                 .ForMember(x => x.MaxCacheItems, options => options.MapFrom(x => x.MaxCacheItems))
                 .ForMember(x => x.CacheSlidingExpirationMinutes, options => options.MapFrom(x => x.CacheSlidingExpirationMinutes))
                 .ForMember(x => x.CacheAbsoluteExpirationMinutes, options => options.MapFrom(x => x.CacheAbsoluteExpirationMinutes))
+                .ForMember(x => x.CustomFields, options => options.Ignore())
                 .ReverseMap();
 
             CreateMap<SettingsRequest, UserIntegrationConfiguration>(MemberList.None)
@@ -55,6 +56,7 @@ namespace Binner.Common.MappingProfiles
                 .ForMember(x => x.TmeApplicationSecret, options => options.MapFrom(x => x.Tme.ApplicationSecret))
                 .ForMember(x => x.TmeApiKey, options => options.MapFrom(x => x.Tme.ApiKey))
                 .ForMember(x => x.TmeApiUrl, options => options.MapFrom(x => x.Tme.ApiUrl))
+                .ForMember(x => x.TmeResolveExternalLinks, options => options.MapFrom(x => x.Tme.ResolveExternalLinks))
 
                 .ForMember(x => x.UserId, options => options.Ignore())
                 .ForMember(x => x.DateCreatedUtc, options => options.Ignore())

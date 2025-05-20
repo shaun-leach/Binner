@@ -51,6 +51,11 @@ namespace Binner.Common.MappingProfiles.ModelCommon
                 .ForMember(x => x.OrganizationId, options => options.Ignore())
                 .ForMember(x => x.ProjectProduceHistory, options => options.Ignore())
                 .ForMember(x => x.ProjectPcbProduceHistory, options => options.Ignore())
+                .ForMember(x => x.PartScanHistories, options => options.Ignore())
+                .ForMember(x => x.OrderImportHistory, options => options.Ignore())
+                .ForMember(x => x.OrderImportHistoryLineItems, options => options.Ignore())
+                .ForMember(x => x.CustomFields, options => options.MapFrom(x => x.CustomFields))
+                .ForMember(x => x.CustomFieldValues, options => options.MapFrom(x => x.CustomFieldValues))
                 ;
 
             CreateMap<DataModel.User, Account>()
@@ -68,6 +73,9 @@ namespace Binner.Common.MappingProfiles.ModelCommon
                     .ForMember(x => x.Password, options => options.Ignore())
                     .ForMember(x => x.NewPassword, options => options.Ignore())
                     .ForMember(x => x.ConfirmNewPassword, options => options.Ignore())
+                    .ForMember(x => x.Tokens, options => options.MapFrom(x => x.UserTokens))
+                    .ForMember(x => x.CustomFields, options => options.MapFrom(x => x.CustomFields))
+                    .ForMember(x => x.CustomFieldValues, options => options.MapFrom(x => x.CustomFieldValues))
                 ;
         }
 

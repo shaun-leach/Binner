@@ -146,5 +146,12 @@
         /// Extension value 2 (can be used to store custom information)
         /// </summary>
         public string? ExtensionValue2 { get; set; }
+
+        /// <summary>
+        /// Parametric part value
+        /// </summary>
+        public string? Value { get; set; }
+
+        public ICollection<CustomValue>? CustomFields { get; set; }
     }
 }

@@ -1,31 +1,27 @@
 ﻿using Binner.Common;
 using Binner.Common.Configuration;
 using Binner.Common.Extensions;
-using Binner.Common.IO;
+using Binner.Common.Security;
 using Binner.Common.StorageProviders;
 using Binner.Data;
-using Binner.Model.Common;
+using Binner.Model;
 using Binner.Model.Configuration;
 using Binner.Web.Configuration;
 using Binner.Web.WebHost;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.Tokens;
 using NLog;
 using NLog.Web;
-using NPOI.OpenXmlFormats.Dml;
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Reflection;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Topshelf;
@@ -39,15 +35,15 @@ namespace Binner.Web.ServiceHost
     [DisplayName("Binner")]
     public partial class BinnerWebHostService : IHostService, IDisposable
     {
-        const string ConfigFile = "appsettings.json";
-        private const string CertificatePassword = "password";
-        const string LogManagerConfigFile = "nlog.config"; // TODO: Inject from appsettings
-        private static readonly string _logFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, LogManagerConfigFile);
+        private static readonly string _configFile = EnvironmentVarConstants.GetEnvOrDefault(EnvironmentVarConstants.Config, AppConstants.AppSettings);
+        private static readonly string _logManagerConfigFile = EnvironmentVarConstants.GetEnvOrDefault(EnvironmentVarConstants.NlogConfig, AppConstants.NLogConfig);
+        private static readonly string _logFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _logManagerConfigFile);
         private static readonly Logger _nlogLogger = NLog.Web.NLogBuilder.ConfigureNLog(_logFile).GetCurrentClassLogger();
+        private static readonly CertificateUtility _certificateUtility = new CertificateUtility(_nlogLogger, _configFile);
 
         private bool _isDisposed;
         private ILogger<BinnerWebHostService>? _logger;
-        private WebHostServiceConfiguration? _config;
+        private WebHostServiceConfiguration? _webHostConfig;
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private IWebHost? _webHost;
 
@@ -59,7 +55,7 @@ namespace Binner.Web.ServiceHost
                 {
                     if (t.Exception.InnerException is IOException && t.Exception.InnerException.Message.Contains("already in use"))
                     {
-                        var message = $"Error: {typeof(BinnerWebHostService).GetDisplayName()} cannot bind to port '{_config?.Port}'. Please check that the service is not already running.";
+                        var message = $"Error: {typeof(BinnerWebHostService).GetDisplayName()} cannot bind to port '{_webHostConfig?.Port}'. Please check that the service is not already running.";
                         if (_logger == null)
                             _nlogLogger.Error(t.Exception, message);
                         else
@@ -91,46 +87,59 @@ namespace Binner.Web.ServiceHost
 
         private async Task InitializeWebHostAsync()
         {
+            var version = Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+            _nlogLogger.Info($"Binner Service v{version} starting...");
             // run without awaiting to avoid service startup delays, and allow the service to shutdown cleanly
             var configPath = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule!.FileName) ?? string.Empty;
-            var configFile = Path.Combine(configPath, ConfigFile);
+            var configFile = Path.Combine(configPath, _configFile);
             var configuration = Config.GetConfiguration(configFile);
             _nlogLogger.Info($"Loading configuration at {configFile}");
-            _config = configuration.GetSection(nameof(WebHostServiceConfiguration)).Get<WebHostServiceConfiguration>() ??
-                      throw new BinnerConfigurationException($"Configuration section '{nameof(WebHostServiceConfiguration)}' does not exist!");
+            _webHostConfig = configuration.GetSection(nameof(WebHostServiceConfiguration)).Get<WebHostServiceConfiguration>() ??
+                      throw new BinnerConfigurationException($"Configuration section '{nameof(WebHostServiceConfiguration)}' does not exist in '{configFile}'!");
 
             var configValidator = new ConfigurationValidator(_nlogLogger);
 
-            configValidator.ValidateConfiguration(_config);
+            configValidator.ValidateConfiguration(_webHostConfig);
 
             // parse the requested IP from the config
             var ipAddress = IPAddress.Any;
-            var ipString = _config.IP;
+            var ipString = _webHostConfig.IP;
             if (!string.IsNullOrEmpty(ipString) && ipString != "*")
-                if (!IPAddress.TryParse(_config.IP, out ipAddress))
+                if (!IPAddress.TryParse(_webHostConfig.IP, out ipAddress))
                     throw new BinnerConfigurationException($"Failed to parse IpAddress '{ipString}'");
 
-            X509Certificate2? certificate = null;
-            var certFilename = Path.GetFullPath(_config.SslCertificate);
-            try
-            {
-                var result = Binner.Common.Security.CertificateLoader.LoadCertificate(certFilename, _config.SslCertificatePassword);
-                certificate = result.Certificate;
-                if (certificate != null)
-                {
-                    _nlogLogger.Info($"{result.CertType} Certificate loaded from '{certFilename}'");
-                    _nlogLogger.Info($"Using SSL Certificate: '{certificate.Subject}' '{certificate.FriendlyName}'");
-                }
-            }
-            catch (Exception ex)
-            {
-                _nlogLogger.Error(ex, "Failed to load SSL certificate.");
-                throw;
-            }
+            // load the SSL certificate, or generate a new one if configured
+            var certificate = _certificateUtility.LoadOrGenerateSelfSignedCertificate(_webHostConfig);
 
             // storage provider config
             var storageConfig = configuration.GetSection(nameof(StorageProviderConfiguration)).Get<StorageProviderConfiguration>() ??
                                 throw new BinnerConfigurationException($"Configuration section '{nameof(StorageProviderConfiguration)}' does not exist!");
+            // inject configuration from environment variables (if set)
+            EnvironmentVarConstants.SetConfigurationFromEnvironment(storageConfig);
+
+            // log paths
+            _nlogLogger.Info($"Application Paths:");
+            try
+            {
+                _nlogLogger.Info($"  Database: {(storageConfig.Provider.Equals("Binner", StringComparison.InvariantCultureIgnoreCase) || storageConfig.Provider.Equals("Sqlite", StringComparison.InvariantCultureIgnoreCase) ? Path.GetDirectoryName(Path.GetFullPath(storageConfig.ProviderConfiguration["Filename"])) : "External")}");
+            }
+            catch (Exception)
+            {
+                _nlogLogger.Info($"  Database: Unavailable");
+            }
+            _nlogLogger.Info($"  Userfiles: {Path.GetFullPath(SystemPaths.GetUserFilesPath(storageConfig))}");
+            _nlogLogger.Info($"  Certificates: {Path.GetDirectoryName(Path.GetFullPath(SystemPaths.GetCerficiatePath(_webHostConfig)))}");
+            try
+            {
+                var fileTarget = LogManager.Configuration?.FindTargetByName<NLog.Targets.FileTarget>("file");
+                var logEventInfo = new LogEventInfo();
+                string? fileName = fileTarget?.FileName.Render(logEventInfo);
+                _nlogLogger.Info($"  Logs: {Path.GetDirectoryName(Path.GetFullPath(fileName ?? "Unavailable"))}");
+            }
+            catch (Exception)
+            {
+                _nlogLogger.Info($"  Logs: Unavailable");
+            }
 
             configValidator.ValidateConfiguration(storageConfig);
 
@@ -152,31 +161,50 @@ namespace Binner.Web.ServiceHost
             }
 
             // ensure the creation of important paths
-            if (!Directory.Exists(storageConfig.UserUploadedFilesPath))
+            var userFilesPath = SystemPaths.GetUserFilesPath(storageConfig);
+            if (!Directory.Exists(userFilesPath))
             {
                 try
                 {
-                    Directory.CreateDirectory(storageConfig.UserUploadedFilesPath);
+                    Directory.CreateDirectory(userFilesPath);
                 }
                 catch (Exception ex)
                 {
-                    _nlogLogger.Error($"Failed to create directory at ${storageConfig.UserUploadedFilesPath}. {ex.GetBaseException().Message}");
+                    _nlogLogger.Error($"Failed to create directory at ${userFilesPath}. {ex.GetBaseException().Message}");
                     return;
                 }
             }
 
-            _nlogLogger.Info($"Building the WebHost on {ipAddress}:{_config.Port} ...");
-            var host = Microsoft.AspNetCore.WebHost
+            _nlogLogger.Info($"Building the WebHost on {(_webHostConfig.UseHttps ? "https://" : "http://")}{ipAddress}:{_webHostConfig.Port}...");
+            var hostBuilder = Microsoft.AspNetCore.WebHost
                 .CreateDefaultBuilder()
                 .ConfigureKestrel(options =>
                 {
-                    options.Listen(ipAddress, _config.Port, c => { c.UseHttps(certificate); });
+                    if (_webHostConfig.UseHttps && certificate != null)
+                    {
+                        // use https
+                        Environment.SetEnvironmentVariable(EnvironmentVarConstants.SpaProtocol, "https"); // used in the UI build to support https
+                        options.Listen(ipAddress, _webHostConfig.Port, c => { c.UseHttps(certificate); });
+                    }
+                    else
+                    {
+                        // use http
+                        Environment.SetEnvironmentVariable(EnvironmentVarConstants.SpaProtocol, "http"); // used in the UI build to support http
+                        options.Listen(ipAddress, _webHostConfig.Port);
+                    }
                 })
-                .UseEnvironment(_config.Environment.ToString())
                 .UseStartup<Startup>()
-                .ConfigureLogging(logging => { logging.AddNLogWeb(); })
+                .ConfigureLogging(logging =>
+                {
+                    logging.ClearProviders();
+                    logging.AddConfiguration(configuration);
+                    logging.AddEventSourceLogger();
+                    //if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
+                    //logging.AddConsole();
+                    logging.AddNLogWeb();
+                })
                 .UseNLog();
-            _webHost = host.Build();
+            _webHost = hostBuilder.Build();
             ApplicationLogging.LoggerFactory = _webHost.Services.GetRequiredService<ILoggerFactory>();
             _logger = _webHost.Services.GetRequiredService<ILogger<BinnerWebHostService>>();
 
@@ -205,7 +233,7 @@ namespace Binner.Web.ServiceHost
             // stop the service
             _logger.LogInformation($"WebHost stopped!");
             // because of the way storage providers are initialized using RegisterInstance(), we must dispose of it manually
-            _webHost.Services.GetRequiredService<IStorageProvider>()
+            _webHost.Services.GetRequiredService<Binner.Model.Common.IStorageProvider>()
                 ?.Dispose();
         }
 
