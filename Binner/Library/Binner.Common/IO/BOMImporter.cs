@@ -11,7 +11,8 @@ namespace Binner.Common.IO
     {
         // SupportedTables ordering matters when it comes to relational data!
         private readonly IStorageProvider _storageProvider;
-        private readonly Regex _designatorMatch = new("^[a-zA-Z]{1,1}[0-9]{1,4}$");
+        // Match the the first 1 to 3 characters from the designator to help determine part type
+        private readonly Regex _designatorMatch = new("^[a-zA-Z]{1,3}");
 
         public BOMImporter(IStorageProvider storageProvider)
         {
@@ -35,11 +36,12 @@ namespace Binner.Common.IO
                     continue;
 
                 // import BOM info
-                var isPartNumberValid = TryGet<string?>(rowData, header.PartNumberIndex, out var partNumberOrValue);
+                var isPartNumberValid = TryGet<string?>(rowData, header.PartNumberIndex, out var partNumber);
                 var isQuantityValid = TryGet<int>(rowData, header.QuantityIndex, out var quantity);
                 var isReferenceValid = TryGet<string?>(rowData, header.ReferenceIndex, out var reference);
                 var isNoteValid = TryGet<string?>(rowData, header.NoteIndex, out var note);
                 var isFootprintValid = TryGet<string?>(rowData, header.FootprintIndex, out var footprint);
+                var isValueValid = TryGet<string?>(rowData, header.ValueIndex, out var value);
 
                 if (!isPartNumberValid || !isQuantityValid || !isReferenceValid)
                     continue;
@@ -52,59 +54,50 @@ namespace Binner.Common.IO
                 assignment.SchematicReferenceId = reference;
                 assignment.FootprintName = footprint;
 
-            var part = await _storageProvider.GetPartAsync(partNumberOrValue, userContext);
+                var part = await _storageProvider.GetPartAsync(partNumber, userContext);
+
+                long partTypeId = (long)SystemDefaults.DefaultPartTypes.Other;
+                if (!string.IsNullOrEmpty(reference))
+                {
+                    InferPartType(reference, value, out partTypeId);
+                }
+
                 if (part != null)
                 {
                     assignment.PartName = part.PartNumber;
                     assignment.PartId = part.PartId;
+                    if (part.Value == null)
+                    {
+                        bool updatePart = false;
+                        if (part.PartTypeId == (long)SystemDefaults.DefaultPartTypes.Other)
+                        {
+                            part.PartTypeId = partTypeId;
+                            updatePart = true;
+                        }
+                        if (part.Value == null)
+                        {
+                            part.Value = value; // resistor, capacitor, inductor, etc.
+                            updatePart = true;
+                        }
+
+                        if (updatePart)
+                        {
+                            await _storageProvider.UpdatePartAsync(part, userContext);
+                        }
+                    }
                 }
                 else
                 {
                     part = new Part();
                     part.FootprintName = footprint;
                     part.DataSource = PartDataSources.DataImport;
-                    part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.Other;
-                    if (!string.IsNullOrEmpty(reference))
-                    {
-                        var refMatch = _designatorMatch.Match(reference);
-                        if (refMatch.Success)
-                        {
-                            if (string.Equals("R", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.Resistor;
-                                part.Value = partNumberOrValue; // resistor, capacitor, inductor, etc.
-                            }
-                            else if (string.Equals("C", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.Capacitor;
-                                part.Value = partNumberOrValue; // resistor, capacitor, inductor, etc.
-                            }
-                            else if (string.Equals("D", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                if (string.Equals(partNumberOrValue, "LED", StringComparison.InvariantCultureIgnoreCase))
-                                    part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.LED;
-                                else
-                                    part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.Diode;
-                                part.Value = partNumberOrValue; // resistor, capacitor, inductor, etc.
-                            }
-                            else if (string.Equals("L", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.Inductor;
-                                part.Value = partNumberOrValue; // resistor, capacitor, inductor, etc.
-                            }
-                            else if (string.Equals("Q", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.Transistor;
-                            }
-                            else if (string.Equals("U", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                part.PartTypeId = (long)SystemDefaults.DefaultPartTypes.IC;
-                            }
-                        }
-                    }
+
+                    part.PartTypeId = partTypeId;
+                    part.Value = value; // resistor, capacitor, inductor, etc.
+
                     part.ShortId = ShortIdGenerator.Generate();
-                    part.PartNumber = partNumberOrValue;
-                    part.Quantity = quantity;
+                    part.PartNumber = partNumber;
+                    part.Quantity = 0;
                     part.UserId = userContext?.UserId;
 
                     part.Description = note;
@@ -115,10 +108,10 @@ namespace Binner.Common.IO
                     catch (Exception ex)
                     {
                         // failed to add part
-                        result.Errors.Add($"[Row {rowNumber}'] Part with PartNumber '{partNumberOrValue}' could not be added. Error: {ex.Message}");
+                        result.Errors.Add($"[Row {rowNumber}'] Part with PartNumber '{partNumber}' could not be added. Error: {ex.Message}");
                     }
 
-                    assignment.PartName = partNumberOrValue;
+                    assignment.PartName = partNumber;
                     assignment.PartId = part.PartId;
                 }
 
@@ -128,7 +121,59 @@ namespace Binner.Common.IO
                 }
                 catch (Exception ex)
                 {
-                    result.Errors.Add($"[Row {rowNumber}] BOM entry '{partNumberOrValue}' could not be added. Error: {ex.Message}");
+                    result.Errors.Add($"[Row {rowNumber}] BOM entry '{partNumber}' could not be added. Error: {ex.Message}");
+                }
+            }
+        }
+
+        protected void InferPartType(string reference, string value, out long partTypeId)
+        {
+            partTypeId = (long)SystemDefaults.DefaultPartTypes.Other;
+            var refMatch = _designatorMatch.Match(reference);
+            if (refMatch.Success)
+            {
+                if (string.Equals("R", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.Resistor;
+                }
+                else if (string.Equals("C", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.Capacitor;
+                }
+                else if (string.Equals("D", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    if (string.Equals(value, "LED", StringComparison.InvariantCultureIgnoreCase))
+                        partTypeId = (long)SystemDefaults.DefaultPartTypes.LED;
+                    else
+                        partTypeId = (long)SystemDefaults.DefaultPartTypes.Diode;
+                }
+                else if (string.Equals("J", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.Connector;
+                }
+                else if (string.Equals("JP", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.Jumper;
+                }
+                else if (string.Equals("L", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.Inductor;
+                }
+                else if (string.Equals("Q", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.Transistor;
+                }
+                else if (string.Equals("S", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.Switch;
+                }
+                else if (string.Equals("U", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.IC;
+                }
+                else if (string.Equals("ZR", refMatch.Value[0].ToString(), StringComparison.InvariantCultureIgnoreCase))
+                {
+                    partTypeId = (long)SystemDefaults.DefaultPartTypes.Zener;
                 }
             }
         }
@@ -216,6 +261,16 @@ namespace Binner.Common.IO
             private int _referenceIndex = -1;
             private int _noteIndex = -1;
             private int _footprintIndex = -1;
+            private int _valueIndex = -1;
+
+            /// <summary>
+            /// the following are valid part number headers (4.7k, ATtiny4-TS etc)
+            /// </summary>
+            /// <remarks>
+            /// KiCad: Schematic BOM = 'MPN', PCB BOM = 'Manufacturer_Part_Number'
+            /// EasyEDA: 'Name' or 'Manufacturer Part'
+            /// </remarks>
+            private static readonly string[] PartNumberHeaders = { "Designation", "MPN", "Manufacturer Part", "Supplier Part", "Manufacturer_Part_Number", "PartNumber", "Mfr Part", "P/N", "Mouser P/N", "Digikey Part Number", "Part Number" };
 
             /// <summary>
             /// the following are valid part number headers (4.7k, ATtiny4-TS etc)
@@ -224,8 +279,8 @@ namespace Binner.Common.IO
             /// KiCad: Schematic BOM = 'Value', PCB BOM = 'Designation'
             /// EasyEDA: 'Name' or 'Manufacturer Part'
             /// </remarks>
-            private static readonly string[] PartNumberHeaders = { "Value", "Designation", "MPN", "Manufacturer Part", "Supplier Part", "Manufacturer_Part_Number", "PartNumber", "Mfr Part", "P/N", "Mouser P/N", "Digikey Part Number", "Part Number" };
-            
+            private static readonly string[] ValueHeaders = { "Value", "Designation" };
+
             /// <summary>
             /// the following are valid quantity headers (numeric quantity)
             /// </summary>
@@ -269,6 +324,7 @@ namespace Binner.Common.IO
             public int ReferenceIndex => _referenceIndex;
             public int NoteIndex => _noteIndex;
             public int FootprintIndex => _footprintIndex;
+            public int ValueIndex => _valueIndex;
 
             public Header(IRow headerRow)
             {
@@ -303,6 +359,11 @@ namespace Binner.Common.IO
                     {
                         if (FootprintHeaders.FirstOrDefault(value => value.Equals(name, StringComparison.InvariantCultureIgnoreCase)) != default)
                             _footprintIndex = i;
+                    }
+                    if (_valueIndex == -1)
+                    {
+                        if (ValueHeaders.FirstOrDefault(value => value.Equals(name, StringComparison.InvariantCultureIgnoreCase)) != default)
+                            _valueIndex = i;
                     }
                 }
 
