@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Web;
 
 namespace Binner.Common.IO
 {
@@ -368,11 +369,12 @@ namespace Binner.Common.IO
                         $"{part.Quantity}",
                         $"{part.Part?.Quantity ?? part.QuantityAvailable}",
                         $"{EscapeValue("", typeof(string))}", // lead time
-                        $"{EscapeValue(part.ReferenceId, typeof(string))}",
-                        $"{EscapeValue(part.Part?.Description, typeof(string))}",
+                        $"{HttpUtility.UrlEncode(EscapeValue(part.ReferenceId, typeof(string)))}",
+                        $"{HttpUtility.UrlEncode(EscapeValue(part.Part?.Description, typeof(string)))}",
                         $"{EscapeValue(part.Notes, typeof(string))}",
-                        $"{EscapeValue(part.SchematicReferenceId, typeof(string))}",
+                        $"{HttpUtility.UrlEncode(EscapeValue(part.SchematicReferenceId, typeof(string)))}",
                         $"{EscapeValue(part.CustomDescription, typeof(string))}",
+                        $"{HttpUtility.UrlEncode(EscapeValue(part.Part?.PackageType, typeof(string)))}",
                         $"{EscapeValue(part.Part?.MountingType, typeof(string))}",
                         $"{EscapeValue(part.Part?.DatasheetUrl, typeof(string))}",
                         $"{EscapeValue(part.Part?.ProductUrl, typeof(string))}",

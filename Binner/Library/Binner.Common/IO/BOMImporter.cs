@@ -270,7 +270,7 @@ namespace Binner.Common.IO
             /// KiCad: Schematic BOM = 'MPN', PCB BOM = 'Manufacturer_Part_Number'
             /// EasyEDA: 'Name' or 'Manufacturer Part'
             /// </remarks>
-            private static readonly string[] PartNumberHeaders = { "Designation", "MPN", "Manufacturer Part", "Supplier Part", "Manufacturer_Part_Number", "PartNumber", "Mfr Part", "P/N", "Mouser P/N", "Digikey Part Number", "Part Number" };
+            private static readonly string[] PartNumberHeaders = { "MPN", "Manufacturer Part", "Supplier Part", "Manufacturer_Part_Number", "PartNumber", "Mfr Part", "P/N", "Mouser P/N", "Digikey Part Number", "Part Number", "Manufacturer P/N" };
 
             /// <summary>
             /// the following are valid part number headers (4.7k, ATtiny4-TS etc)
@@ -297,7 +297,7 @@ namespace Binner.Common.IO
             /// KiCad: Schematic BOM = 'Reference', PCB BOM = 'Designator'
             /// EasyEDA: 'Designator'
             /// </remarks>
-            private static readonly string[] ReferenceHeaders = { "Reference", "Designator", "SchematicReferenceId", "References", "Board ID" };
+            private static readonly string[] ReferenceHeaders = { "Reference", "Designator", "SchematicReferenceId", "References", "Board ID", "Part ID" };
             
             /// <summary>
             /// Note/comment headers
