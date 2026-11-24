@@ -37,6 +37,7 @@ namespace Binner.Common.IO
 
                 // import BOM info
                 var isPartNumberValid = TryGet<string?>(rowData, header.PartNumberIndex, out var partNumber);
+                var isPCBValid = TryGet<string?>(rowData, header.PCBIndex, out var pcbName);
                 var isQuantityValid = TryGet<int>(rowData, header.QuantityIndex, out var quantity);
                 var isReferenceValid = TryGet<string?>(rowData, header.ReferenceIndex, out var reference);
                 var isNoteValid = TryGet<string?>(rowData, header.NoteIndex, out var note);
@@ -46,8 +47,28 @@ namespace Binner.Common.IO
                 if (!isPartNumberValid || !isQuantityValid || !isReferenceValid)
                     continue;
 
+                Pcb pcb = null;
+                if (isPCBValid)
+                {
+                    string fullName = project.Name + " - " + pcbName;
+                    pcb = await _storageProvider.GetPcbAsync(fullName, userContext);
+                    if (pcb == null)
+                    {
+                        pcb = new Pcb();
+                        pcb.Name = fullName;
+                        pcb = await _storageProvider.AddPcbAsync(pcb, userContext);
+                        await _storageProvider.AddProjectPcbAssignmentAsync(new ProjectPcbAssignment
+                        {
+                            PcbId = pcb.PcbId,
+                            ProjectId = project.ProjectId,
+                        }, userContext);
+
+                    }
+                }
+
                 var assignment = new ProjectPartAssignment();
                 assignment.ProjectId = project.ProjectId;
+                assignment.PcbId = pcb?.PcbId;
                 assignment.Quantity = quantity;
                 assignment.Notes = note;
                 assignment.ReferenceId = reference;
@@ -256,6 +277,7 @@ namespace Binner.Common.IO
         {
             private bool _isValid = false;
 
+            private int _pcbIndex = -1;
             private int _partNumberIndex = -1;
             private int _quantityIndex = -1;
             private int _referenceIndex = -1;
@@ -317,8 +339,16 @@ namespace Binner.Common.IO
             /// </remarks>
             private static readonly string[] FootprintHeaders = { "Footprint" };
 
+            /// <summary>
+            /// PCB headers
+            /// </summary>
+            /// <remarks>
+            /// </remarks>
+            private static readonly string[] PCBHeaders = { "PCB" };
+
             public bool IsValid { get => _isValid; }
 
+            public int PCBIndex => _pcbIndex;
             public int PartNumberIndex => _partNumberIndex;
             public int QuantityIndex => _quantityIndex;
             public int ReferenceIndex => _referenceIndex;
@@ -364,6 +394,11 @@ namespace Binner.Common.IO
                     {
                         if (ValueHeaders.FirstOrDefault(value => value.Equals(name, StringComparison.InvariantCultureIgnoreCase)) != default)
                             _valueIndex = i;
+                    }
+                    if (_pcbIndex == -1)
+                    {
+                        if (PCBHeaders.FirstOrDefault(value => value.Equals(name, StringComparison.InvariantCultureIgnoreCase)) != default)
+                            _pcbIndex = i;
                     }
                 }
 
